@@ -22,6 +22,9 @@ type Request struct {
 	Input     string `json:"input"`
 }
 type Response struct {
+	InputMode string `json:"input_mode"`
+	MaxLength int    `json:"max_length"`
+	InputHint string `json:"input_hint"`
 	SessionID string `json:"session_id"`
 	Sequence  int    `json:"sequence"`
 	ScreenID  string `json:"screen_id"`
@@ -113,8 +116,8 @@ func (a *App) sessions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "VALIDATION_ERROR"})
 		return
 	}
-	if len(req.Input) > 200 || len(req.RequestID) < 1 || len(req.RequestID) > 100 || req.Sequence < 1 {
-		writeJSON(w, 400, map[string]string{"error": "VALIDATION_ERROR"})
+	if !requestKeyPattern.MatchString(req.RequestID) || (req.SessionID != "" && !requestKeyPattern.MatchString(req.SessionID)) || req.Sequence < 1 {
+		writeJSON(w, 400, map[string]string{"error": "VALIDATION_ERROR", "message": "Use valid request/session identifiers and a positive whole-number sequence."})
 		return
 	}
 	var response Response
@@ -169,7 +172,7 @@ func (a *App) sessions(w http.ResponseWriter, r *http.Request) {
 			return &apiError{"SESSION_ENDED", "Dial again for a new session."}
 		}
 		if req.Sequence > 1 {
-			a.advance(s, strings.TrimSpace(req.Input))
+			a.advance(s, req.Input)
 		}
 		response = a.render(s)
 		response.Sequence = req.Sequence

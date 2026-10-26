@@ -2,15 +2,10 @@ package app
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
-
-var nrcPattern = regexp.MustCompile(`^[0-9]{6}/[0-9]{2}/[0-9]$`)
 
 func (a *App) customerConfirmed(s *Session) bool {
 	c := a.db.Customers[s.CustomerID]
@@ -96,7 +91,7 @@ func caseText(c *Case) string {
 	return fmt.Sprintf("Case %s\n%s\nNext: %s", c.ID, c.Owner, c.NextAction)
 }
 func choice(input string, ids []string) string {
-	n, e := strconv.Atoi(input)
+	n, e := menuNumber(input)
 	if e != nil || n < 1 || n > len(ids) {
 		return ""
 	}
@@ -104,14 +99,20 @@ func choice(input string, ids []string) string {
 }
 func (a *App) advance(s *Session, input string) {
 	s.Notice = ""
-	if input == "99" {
-		a.end(s, "Thank you for using MightyFin.")
-		return
-	}
 	public := map[string]bool{"main": true, "recognise": true, "unknown": true, "register_consent": true, "register_name": true, "register_nrc": true, "register_phone": true, "help": true, "recovery": true}
 	if !public[s.Screen] && !a.customerConfirmed(s) {
 		s.ConfirmedUntil = time.Time{}
 		a.end(s, "Session expired. Dial again and confirm your name.")
+		return
+	}
+	cleaned, err := cleanInput(input, 200)
+	if err != nil {
+		s.Notice = err.Error()
+		return
+	}
+	input = cleaned
+	if input == "99" {
+		a.end(s, "Thank you for using MightyFin.")
 		return
 	}
 	if input == "00" {
@@ -195,10 +196,11 @@ func (a *App) advance(s *Session, input string) {
 			s.Notice = "Choose 1 or 2."
 		}
 	case "register_name":
-		if utf8.RuneCountInString(input) < 3 || utf8.RuneCountInString(input) > 60 {
-			s.Notice = "Enter your name (3–60 characters)."
+		name, err := customerName(input)
+		if err != nil {
+			s.Notice = err.Error()
 		} else {
-			s.RegistrationName = input
+			s.RegistrationName = name
 			s.Screen = "register_nrc"
 		}
 	case "register_nrc":
@@ -281,14 +283,8 @@ func (a *App) advance(s *Session, input string) {
 		s.Screen = "apply_term"
 	case "apply_term":
 		d := a.db.Applications[s.ApplicationID]
-		n, e := strconv.Atoi(input)
-		valid := false
-		for _, t := range product(d.Product).Terms {
-			if n == t {
-				valid = true
-			}
-		}
-		if e != nil || !valid {
+		n, valid := validTerm(input, product(d.Product))
+		if !valid {
 			s.Notice = "Enter a listed number of months."
 			return
 		}
@@ -304,17 +300,12 @@ func (a *App) advance(s *Session, input string) {
 			return
 		}
 		field := fields[s.Page]
-		if len(input) < 2 || len(input) > 100 {
-			s.Notice = "Enter 2–100 characters."
+		answer, err := field.validate(input)
+		if err != nil {
+			s.Notice = err.Error()
 			return
 		}
-		if strings.Contains(field, "income") {
-			if _, err := parseMoney(input); err != nil {
-				s.Notice = "Enter a positive income in kwacha."
-				return
-			}
-		}
-		d.Answers[field] = input
+		d.Answers[field.Name] = answer
 		d.Version++
 		s.Page++
 		if s.Page == len(fields) {
@@ -324,8 +315,7 @@ func (a *App) advance(s *Session, input string) {
 		d := a.db.Applications[s.ApplicationID]
 		switch input {
 		case "1":
-			if d.Amount <= 0 || d.Term <= 0 || len(d.Answers) != len(product(d.Product).Screening) {
-				a.resumeDraft(s)
+			if !validateDraft(s, d) {
 				return
 			}
 			d.SubmissionKey = "submit:" + d.ID
@@ -340,7 +330,7 @@ func (a *App) advance(s *Session, input string) {
 		case "2":
 			s.Screen = "apply_product"
 		case "3":
-			a.end(s, "Draft saved. You can resume after authentication.")
+			a.end(s, "Draft saved. Dial again and confirm your name to resume.")
 		default:
 			s.Notice = "Choose 1 Submit, 2 Edit or 3 Save and exit."
 		}
@@ -442,7 +432,7 @@ func (a *App) advance(s *Session, input string) {
 			s.Page++
 			return
 		}
-		idx, e := strconv.Atoi(input)
+		idx, e := menuNumber(input)
 		start := s.Page * 3
 		if e != nil || idx < 1 || idx > 3 || start+idx > len(s.Choices) {
 			s.Notice = "Select a listed loan."
@@ -502,12 +492,17 @@ func (a *App) advance(s *Session, input string) {
 				return
 			}
 			s.Source = p
-		} else {
-			if len(input) < 4 || len(input) > 24 {
-				s.Notice = "Enter a 4–24 character demo bank reference. No password."
+		} else if s.Method == "BANK" {
+			ref, err := bankReference(input)
+			if err != nil {
+				s.Notice = err.Error()
 				return
 			}
-			s.Source = input
+			s.Source = ref
+		} else {
+			s.Screen = "repay_method"
+			s.Notice = "Choose mobile money or bank."
+			return
 		}
 		a.makeQuote(s)
 	case "repay_confirm":
@@ -525,7 +520,7 @@ func (a *App) advance(s *Session, input string) {
 			s.Page++
 			return
 		}
-		n, e := strconv.Atoi(input)
+		n, e := menuNumber(input)
 		idx := s.Page*3 + n - 1
 		if e != nil || n < 1 || n > 3 || idx >= len(s.Choices) {
 			s.Notice = "Select a listed transaction."
@@ -633,7 +628,7 @@ func (a *App) resumeDraft(s *Session) {
 		s.Screen = "apply_term"
 	default:
 		for i, f := range product(d.Product).Screening {
-			if d.Answers[f] == "" {
+			if d.Answers[f.Name] == "" {
 				s.Screen = "apply_screening"
 				s.Page = i
 				return
@@ -786,13 +781,28 @@ func (a *App) initiatePayment(s *Session) {
 }
 
 func (a *App) completeRegistration(s *Session) {
+	name, err := customerName(s.RegistrationName)
+	if err != nil {
+		s.Screen = "register_name"
+		s.Notice = err.Error()
+		return
+	}
+	if !nrcPattern.MatchString(s.RegistrationNRC) {
+		s.Screen = "register_nrc"
+		s.Notice = "Use format 123456/78/1."
+		return
+	}
+	if _, err = phone(s.Phone); err != nil {
+		a.end(s, "The mobile number is invalid. Please dial again.")
+		return
+	}
 	for _, c := range a.db.Customers {
 		if c.Phone == s.Phone || c.NRC == s.RegistrationNRC {
 			a.end(s, caseText(a.newCase(s, "ACCOUNT_LINKING", "")))
 			return
 		}
 	}
-	c := &Customer{ID: id("CUS"), Name: s.RegistrationName, NRC: s.RegistrationNRC, Phone: s.Phone}
+	c := &Customer{ID: id("CUS"), Name: name, NRC: s.RegistrationNRC, Phone: s.Phone}
 	a.db.Customers[c.ID] = c
 	s.CustomerID = c.ID
 	s.RegistrationName = ""

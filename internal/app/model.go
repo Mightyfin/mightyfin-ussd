@@ -20,13 +20,14 @@ type Product struct {
 	ID, Name  string
 	Min, Max  int64
 	Terms     []int
-	Screening []string
+	Screening []ScreeningField
 }
+type ScreeningField struct{ Name, Kind string }
 
 // Synthetic catalogue only. Live limits and questions must come from the LMS.
 var products = []Product{
-	{"salary", "Demo Salary Loan", 50000, 1000000, []int{1, 3, 6}, []string{"Employer name", "Monthly income (ZMW)"}},
-	{"business", "Demo Business Loan", 100000, 2000000, []int{3, 6, 12}, []string{"Business activity", "Monthly income (ZMW)"}},
+	{"salary", "Demo Salary Loan", 50000, 1000000, []int{1, 3, 6}, []ScreeningField{{"Employer name", "text"}, {"Monthly income (ZMW)", "money"}}},
+	{"business", "Demo Business Loan", 100000, 2000000, []int{3, 6, 12}, []ScreeningField{{"Business activity", "text"}, {"Monthly income (ZMW)", "money"}}},
 }
 
 type Application struct {
@@ -131,7 +132,11 @@ func id(prefix string) string {
 }
 func money(n int64) string { return fmt.Sprintf("K%d.%02d", n/100, n%100) }
 func parseMoney(s string) (int64, error) {
-	s = strings.TrimSpace(s)
+	var err error
+	s, err = cleanInput(s, 12)
+	if err != nil {
+		return 0, err
+	}
 	parts := strings.Split(s, ".")
 	if len(parts) > 2 || len(parts[0]) == 0 || len(parts[0]) > 9 {
 		return 0, errors.New("amount")
@@ -168,7 +173,11 @@ func parseMoney(s string) (int64, error) {
 	return n, nil
 }
 func phone(s string) (string, error) {
-	s = strings.TrimSpace(s)
+	var err error
+	s, err = cleanInput(s, 20)
+	if err != nil {
+		return "", err
+	}
 	s = strings.ReplaceAll(s, " ", "")
 	if strings.HasPrefix(s, "0") {
 		s = "+260" + s[1:]
@@ -182,6 +191,9 @@ func phone(s string) (string, error) {
 		if r < '0' || r > '9' {
 			return "", errors.New("Invalid phone number")
 		}
+	}
+	if s[4] != '7' && s[4] != '9' {
+		return "", errors.New("Enter a mobile number beginning 07 or 09, e.g. 0970000001, or its +260 format")
 	}
 	return s, nil
 }

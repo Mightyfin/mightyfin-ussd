@@ -15,8 +15,8 @@ type DemoAction struct {
 
 func (a *App) demo(w http.ResponseWriter, r *http.Request) {
 	var req DemoAction
-	if decode(w, r, &req) != nil || len(req.Reference) > 100 || len(req.EventID) > 100 {
-		writeJSON(w, 400, map[string]string{"error": "VALIDATION_ERROR"})
+	if decode(w, r, &req) != nil || !requestKeyPattern.MatchString(req.Action) || !requestKeyPattern.MatchString(req.Reference) || (req.EventID != "" && !requestKeyPattern.MatchString(req.EventID)) {
+		writeJSON(w, 400, map[string]string{"error": "VALIDATION_ERROR", "message": "Use letters, numbers, dots, colons, underscores or hyphens for action references and event IDs."})
 		return
 	}
 	result := "Demo action recorded."

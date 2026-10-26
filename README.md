@@ -80,6 +80,32 @@ single repayment of principal plus interest at the selected tenure. Both demo pr
 partial repayments. These are not MightyFin prices or credit rules. A future live channel must
 use LMS products, decisions, balances and quotes rather than deploying this demo ledger.
 
+## Answer validation
+
+Every customer question is validated on the server. The simulator also selects the numeric,
+decimal, telephone or text keyboard and shows a field-specific length limit and hint.
+Invalid answers stay on the same question and do not change saved application or payment data.
+
+| Question | Accepted input |
+| --- | --- |
+| Menu or consent choice | Only an option actually shown. `+1`, `01`, `1.0`, words and unlisted options are rejected. |
+| Customer name | 3–60 Unicode characters; letters, spaces, apostrophes, hyphens and periods for initials. Numbers, emoji and markup are rejected. Repeated spaces are normalised. |
+| NRC | Exactly six digits, slash, two digits, slash, one digit, e.g. `123456/78/1`. This checks format and existing local identities, not official identity validity. |
+| Loan amount | Positive decimal kwacha with at most two decimal places, within the selected product's permitted range. No signs, commas, exponent notation or currency symbols. |
+| Tenure | A whole number of months exactly matching one of the product's listed terms. |
+| Employer / business | 2–100 characters with at least one letter. Names such as `3M Zambia Ltd.` and ordinary business punctuation are supported; numbers alone and markup are rejected. |
+| Income | Positive decimal kwacha, at most two decimal places. A single digit such as `5` is valid and stored as `5.00`; no invented income eligibility threshold is applied. |
+| Other repayment amount | Positive decimal kwacha, at most two decimal places, no greater than the current loan balance. |
+| Mobile number | Demo mobile format beginning `07` or `09`, or equivalent `260` / `+260` format. Ordinary grouping spaces are removed. The repayment source must match the session's number. This is not an ownership or carrier-allocation check. |
+| Demo bank reference | 4–24 ASCII letters/numbers with optional internal hyphens or slashes; must start/end in a letter or number. This is a demo rule, not a claimed Lipila contract. |
+
+All answers reject hidden/control characters, multiple lines and oversized input. Existing
+drafts are revalidated at submission, so saved answers from an older version cannot bypass
+the current checks. Request/session/event references are restricted to portable identifier
+characters. These checks apply when calling the HTTP API directly as well as in the browser.
+Exact `0`, `00` and `99` remain reserved navigation commands, including on data-entry screens;
+use `99.00` if an amount or income of 99 kwacha is intended.
+
 ## Persistence and integrity
 
 - AES-GCM encrypted snapshots, temporary-file write, sync and replacement. Keep `demo.key`
@@ -110,7 +136,7 @@ These are simulator APIs, not a confirmed partner contract. `/api/*` requires `X
 | Route | Purpose |
 | --- | --- |
 | `GET /` | Embedded phone and demo operations panel |
-| `POST /api/sessions` | `{session_id, phone, request_id, sequence, input}` returns `{session_id, sequence, screen_id, text, end}` |
+| `POST /api/sessions` | `{session_id, phone, request_id, sequence, input}` returns `{session_id, sequence, screen_id, text, end, input_mode, max_length, input_hint}` |
 | `GET /api/demo/state` | Synthetic operations state; excludes raw sessions |
 | `POST /api/demo/actions` | `{action, reference, event_id}` for demo staff controls |
 | `GET /healthz` | Local process health |
@@ -129,7 +155,9 @@ go build ./cmd/ussd
 Tests cover the HTTP-driven full journey, mobile money and bank simulations, unknown outcomes
 blocking duplicate collections, unposted success, posting/reversal deduplication, late conflicting
 events, encrypted persistence/restart, request conflicts, credential removal, session confirmation
-expiry, stale drafts/offers/quotes, rollback and withdrawal racing payout.
+expiry, stale drafts/offers/quotes, rollback and withdrawal racing payout. Validation tests cover
+every numbered menu and data-entry question, direct HTTP bypass attempts, Unicode names,
+numeric text rejection, boundary amounts, phone/reference formats and preservation of valid data.
 `go test -race ./...` additionally requires a working CGO C toolchain.
 
 ## Deferred live work

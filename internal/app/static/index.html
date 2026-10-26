@@ -8,14 +8,14 @@
   <div class="workspace">
    <section class="simulator" aria-label="Customer phone simulator">
     <div class="section-heading"><h2>Customer phone</h2><span id="screen-label">READY TO DIAL</span></div>
-    <div class="dial-form"><label for="phone">Phone number</label><div class="input-row"><input id="phone" type="tel" value="0970000001" autocomplete="off"><button id="dial" class="primary">Dial demo</button></div></div>
+    <div class="dial-form"><label for="phone">Phone number</label><div class="input-row"><input id="phone" type="tel" inputmode="tel" maxlength="20" value="0970000001" autocomplete="off"><button id="dial" class="primary">Dial demo</button></div></div>
     <div class="phone-shell"><div class="speaker"></div><div class="phone-top"><span>MIGHTYFIN</span><span>▂▄▆ &nbsp; ▰</span></div><div class="phone-screen"><div class="screen-title"><span>USSD SERVICE</span><span id="connection">OFFLINE DEMO</span></div><pre id="display" aria-live="polite">Welcome to MightyFin.
 
 Your next step starts here.
 
 Enter your demo number above
 and select Dial demo.</pre></div>
-     <form id="reply-form"><label id="reply-label" for="reply">Your response</label><div class="input-row"><input id="reply" maxlength="200" autocomplete="off" disabled placeholder="Enter an option"><button id="send" type="submit" class="primary" disabled>Send ↗</button></div></form>
+     <form id="reply-form"><label id="reply-label" for="reply">Your response</label><div class="input-row"><input id="reply" maxlength="200" autocomplete="off" aria-describedby="input-hint" disabled placeholder="Enter an option"><button id="send" type="submit" class="primary" disabled>Send ↗</button></div><p id="input-hint" class="input-hint">Enter one of the menu numbers shown.</p></form>
      <div class="shortcuts"><button data-input="0" disabled>0 <span>Back</span></button><button data-input="00" disabled>00 <span>Main</span></button><button data-input="99" disabled>99 <span>Exit</span></button></div>
      <div class="phone-bottom">Mighty Finance Solutions Limited</div>
     </div><div id="session-meta" class="session-meta">Server-side drafts survive a new dial.</div><p id="phone-error" role="alert" class="error"></p>

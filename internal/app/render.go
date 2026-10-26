@@ -77,14 +77,14 @@ func (a *App) render(s *Session) Response {
 		if s.Page >= len(fields) {
 			s.Page = len(fields) - 1
 		}
-		text = "Enter " + fields[s.Page]
+		text = "Enter " + fields[s.Page].Name
 	case "apply_confirm":
 		screen = "S07"
 		d := a.db.Applications[s.ApplicationID]
 		p := product(d.Product)
 		text = fmt.Sprintf("%s\nAmount %s\nTenure %d months", p.Name, money(d.Amount), d.Term)
 		for _, f := range p.Screening {
-			text += "\n" + f + ": " + d.Answers[f]
+			text += "\n" + f.Name + ": " + d.Answers[f.Name]
 		}
 		text += "\nConsent: demo-application-v1\n1 Agree and Submit\n2 Edit\n3 Save and exit"
 	case "kyc":
@@ -231,6 +231,10 @@ func (a *App) render(s *Session) Response {
 	}
 	r.ScreenID = screen
 	r.Text = text
+	spec := a.inputSpec(s)
+	r.InputMode = spec.Mode
+	r.MaxLength = spec.MaxLength
+	r.InputHint = spec.Hint
 	return r
 }
 
