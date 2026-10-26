@@ -1,0 +1,7 @@
+/data/
+/ussd
+/*.exe
+/coverage.out
+/.env
+/.env.*
+!/.env.example
