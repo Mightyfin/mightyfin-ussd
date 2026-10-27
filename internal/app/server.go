@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -33,9 +34,13 @@ type Response struct {
 }
 type apiError struct{ Code, Message string }
 
-func (e *apiError) Error() string { return e.Message }
-func conflict(msg string) error   { return &apiError{"DUPLICATE_CONFLICT", msg} }
-func (a *App) Handler() http.Handler {
+func (e *apiError) Error() string    { return e.Message }
+func conflict(msg string) error      { return &apiError{"DUPLICATE_CONFLICT", msg} }
+func (a *App) Handler() http.Handler { return a.HandlerForAddress("127.0.0.1:8090") }
+
+// HandlerForAddress preserves localhost-only access on a deployment-specific port.
+func (a *App) HandlerForAddress(address string) http.Handler {
+	_, port, _ := net.SplitHostPort(address)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -67,7 +72,7 @@ func (a *App) Handler() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-		if r.Host != "127.0.0.1:8090" && r.Host != "localhost:8090" {
+		if r.Host != "127.0.0.1:"+port && r.Host != "localhost:"+port {
 			writeJSON(w, 403, map[string]string{"error": "LOCAL_ONLY"})
 			return
 		}

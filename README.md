@@ -169,3 +169,12 @@ contracted Lipila methods, verified callbacks, reconciliation and staff authoris
 recovery approval, refunds, destination ownership checks, full legal terms, operating SLAs,
 durable multi-instance storage, load testing and business UAT remain launch dependencies.
 This local app does not claim completion of the production release gates.
+
+## Private server review deployment
+
+The supervised server instance uses `USSD_HTTP_ADDR=127.0.0.1:28090` to avoid the
+partner backend's port 8090. The address must remain on 127.0.0.1. Host, Origin and
+demo-token protections still apply. SIGINT and SIGTERM both shut down gracefully.
+See [deployment instructions](deploy/README.txt) and the
+[Admin LMS integration study](deploy/ADMIN-LMS-INTEGRATION.txt). This instance remains
+a private synthetic simulator; it is not a live LMS or operator integration.

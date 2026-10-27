@@ -1,0 +1,51 @@
+Admin LMS integration study — 27 October 2026
+
+Repository explicitly defers all external integration. Current code has no outgoing
+API calls; customers, products, offers, balances and transactions are local synthetic
+records. Demo staff can accept KYC and release a simulated payout. There is no USSD
+operator callback adapter. Publishing this unchanged is not a production integration.
+
+Authoritative LMS API: https://admin.mightyfinance.co.zm/api/v1
+Existing integration guide:
+https://admin.mightyfinance.co.zm/integration-docs/external-lms.html
+Public product configuration returned 200; unauthenticated integration application
+feed returned 401, as expected. No customer writes or payment calls were performed.
+
+Mapping from the deployed Laravel route collection:
+- Product configuration: GET /loans/config. Pricing: POST /loans/quote.
+  Replace fictional products and the demo 10% interest/K10 fee with LMS responses.
+- Identity: existing /auth/login and OTP routes. Customer routes require Sanctum
+  and token.audience:customer-app. A channel-specific customer authorization design
+  is needed. Never treat a supplied phone number/name confirmation as authenticated.
+- Applications: POST /loan-applications, PATCH /loan-applications/{application},
+  POST /loan-applications/{application}/submit, GET /loan-applications/current.
+  These require the authenticated customer's token. Preserve idempotent session
+  requests and application ownership. Do not give a broad integration key to callers.
+- KYC: existing authenticated KYC/draft document routes; generate a real handoff
+  through approved web/WhatsApp/officer channels. Demo cases currently send nothing.
+- Assessment: GET /loan-applications/{application}/assessment exists. Offer versioning,
+  disclosures and acceptance require contract verification; local demo approval and
+  payout controls must not become a live staff authorization shortcut.
+- External feed: GET /integrations/loan-applications and /{application}/full use
+  AuthenticateLmsIntegration; full dossiers require loan-applications:full scope.
+  This is a feed, not evidence of a trusted-phone customer login or application-write API.
+- Collections: /integrations/collections supports providers, create/read/verify and
+  /loans/{loan}/repayments under payments:collect scope. Customer payment routes also
+  exist. Provider selection, ownership, callbacks, idempotency and reconciliation must
+  be agreed and implemented; the demo's Lipila wording is not a working integration.
+- Balance and settlement: use authoritative loan/payment APIs. Never carry the demo
+  ledger into live operation. A provider initiation/acceptance is not a settlement.
+
+Remaining live deployment inputs/work:
+1. USSD operator/gateway callback schema, trusted MSISDN authentication, deadlines,
+   cumulative vs incremental input, session identifiers and response limits.
+2. Explicit live customer authorization and narrowly scoped service credentials.
+3. LMS adapters replacing demo data/ledger; durable concurrent session storage.
+4. Approved products/terms, verified payment callbacks and reconciliation, real KYC
+   handoffs, staff authorization, monitoring, backups and end-to-end UAT.
+5. Only after those are implemented, expose the authenticated callback through Caddy;
+   never expose /api/demo/actions or the synthetic staff workbench publicly.
+
+A general Laravel route:list command currently hits an existing missing
+DynamicFormController reference. Routes above were enumerated directly from the
+loaded router instead. This pre-existing issue was not changed during USSD deployment.

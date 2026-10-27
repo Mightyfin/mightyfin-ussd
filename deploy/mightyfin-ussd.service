@@ -1,0 +1,18 @@
+[Unit]
+Description=MightyFin USSD private simulator (no live LMS integration)
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mightyfin/production/mightyfin-ussd
+Environment=USSD_DATA_DIR=/home/mightyfin/.local/share/mightyfin-ussd
+Environment=USSD_HTTP_ADDR=127.0.0.1:28090
+ExecStart=/home/mightyfin/production/mightyfin-ussd/deploy/run-private.sh
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
