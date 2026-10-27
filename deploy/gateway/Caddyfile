@@ -1,0 +1,26 @@
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	header {
+		Content-Type application/json
+		Cache-Control no-store
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	@health {
+		method GET HEAD
+		path /healthz
+	}
+	handle @health {
+		respond `{"status":"ok","service":"ussd-gateway","callback_ready":false}` 200
+	}
+	handle /ussd {
+		respond `{"error":"USSD_NOT_READY","message":"Operator integration is not configured."}` 503
+	}
+	handle {
+		respond `{"error":"NOT_FOUND"}` 404
+	}
+}
