@@ -3,6 +3,8 @@ package lmsbridge
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,7 +26,7 @@ func fixture(t *testing.T) (*Server, *atomic.Int32) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/v1/users/profile" {
 			switch r.Header.Get("Authorization") {
-			case "Bearer alice":
+			case "Bearer alice", "Bearer alice-99":
 				fmt.Fprint(w, `{"data":{"id":"user-1"}}`)
 			case "Bearer bob":
 				fmt.Fprint(w, `{"data":{"id":"user-2"}}`)
@@ -40,6 +42,12 @@ func fixture(t *testing.T) (*Server, *atomic.Int32) {
 			return
 		}
 		switch r.URL.Path {
+		case "/api/v1/loan-applications/current":
+			id := 44
+			if r.Header.Get("Authorization") == "Bearer alice-99" {
+				id = 99
+			}
+			fmt.Fprintf(w, `{"application":{"id":%d,"status":"draft"},"application_completion":{"is_complete":true,"missing_profile_fields":[],"missing_documents":[]}}`, id)
 		case "/api/v1/loans/config":
 			fmt.Fprint(w, `{"success":true,"data":[{"id":7,"name":"LMS product"}]}`)
 		case "/api/v1/loans/quote":
@@ -80,6 +88,12 @@ func request(s *Server, method, path, token, key, body string) *httptest.Respons
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
 	r.Header.Set("Idempotency-Key", key)
+	if strings.HasSuffix(path, "/submit") {
+		r.Header.Set("X-USSD-Confirmation", "submit")
+		snapshot, _ := s.Client.Call(context.Background(), "GET", "/loan-applications/current", token, nil)
+		hash := sha256.Sum256(snapshot.Body)
+		r.Header.Set("X-USSD-Journey-Version", hex.EncodeToString(hash[:]))
+	}
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	return w
@@ -157,7 +171,7 @@ func TestConcurrentReplayAndConflict(t *testing.T) {
 }
 func TestUncertainWriteSurvivesRestartWithoutResend(t *testing.T) {
 	s, writes := fixture(t)
-	w := request(s, "POST", "/v1/applications/99/submit", "alice", "uncertain", `{}`)
+	w := request(s, "POST", "/v1/applications/99/submit", "alice-99", "uncertain", `{}`)
 	if w.Code != 503 || strings.Contains(w.Body.String(), "secret") {
 		t.Fatal(w.Code, w.Body.String())
 	}
@@ -173,7 +187,7 @@ func TestUncertainWriteSurvivesRestartWithoutResend(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.Journal = j
-	w = request(s, "POST", "/v1/applications/99/submit", "alice", "uncertain", `{}`)
+	w = request(s, "POST", "/v1/applications/99/submit", "alice-99", "uncertain", `{}`)
 	if w.Code != 409 || writes.Load() != 1 {
 		t.Fatal(w.Code, writes.Load())
 	}

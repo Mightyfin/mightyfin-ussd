@@ -104,3 +104,55 @@ Remaining before a live phone journey:
 Rollback: systemctl --user disable --now mightyfin-ussd-lms.service
 Preserve the journal AND key. Never delete unresolved requests to bypass a conflict.
 Stopping this service does not stop Admin LMS or the separate simulator.
+
+Journey automation extension — 27 October 2026
+
+GET /v1/journey (service key + LMS customer token) reads the current application and
+customer-owned loans and returns state, next_action, missing_profile_fields,
+missing_documents and a version of the current application snapshot. It does not
+submit, run assessment, create an identity session, accept an offer or move funds.
+A complete draft proposes review/confirmation; missing details propose continuation;
+missing documents propose a handoff; pending/approved/rejected applications show LMS
+status; an active loan proposes viewing repayment details. Unknown states, unknown
+balances and unread loan pages do not propose another application. Document handoff
+is marked unavailable until an actual secure handoff is integrated. Products shown
+are available catalogue entries, not a promise of customer eligibility.
+
+Submission now requires:
+  X-USSD-Confirmation: submit
+  X-USSD-Journey-Version: <version returned by GET /v1/journey>
+  Idempotency-Key: <stable key for this confirmed request>
+The adapter re-reads the current draft and rejects a changed snapshot, mismatched
+application, or missing completion requirements. It then delegates submission to LMS,
+which already queues ProcessLoanApplicationAssessment. No second assessment trigger
+was added. The version comparison detects changes observed at re-read; it is not an
+atomic compare-and-swap inside LMS across other channels. Production writes remain
+disabled pending full end-to-end validation and concurrency handling at the LMS boundary.
+
+POST /v1/identity/session delegates to the existing customer-scoped /didit/session,
+with {"verificationType":"kyc"} or {"verificationType":"kyb"}. It requires
+X-USSD-Confirmation: verify_identity, an LMS customer token, a service key, a stable
+Idempotency-Key and application writes enabled. LMS resolves the appropriate provider
+workflow; an already_verified result is preserved. Provider URL/status are returned,
+not automatically sent by SMS. Retries replay the saved result and do not create more
+provider sessions. Live Didit sessions were NOT created during verification. LMS
+customer bearer tokens are not stored; the returned provider session result, if any,
+is stored encrypted in the request journal.
+
+Correction to the earlier KYC route list: GET /v1/kyc/status is now blocked (503).
+Inspection showed that the deployed LMS GET /kyc/status calls syncApplicationAfterKyc,
+which updates draft status/complete when documents exist. It cannot serve as a safe
+read-only status check. The journey endpoint reads application_completion instead.
+Document completeness is not equivalent to verified identity approval.
+
+The deployed LMS API route inventory has Didit session/webhook support but no explicit
+versioned customer offer-review/acceptance API. An approved application is therefore
+NOT displayed as an offer ready to accept. That contract still needs implementation.
+
+Verification: journey-state fixtures cover missing details/documents, complete drafts,
+pending/approved status, active loans, unknown balances, pagination and inconsistent
+completion. HTTP tests prove that journey reads never invoke the mutating legacy KYC
+route or assessment POST. Submission tests cover absent confirmation, stale versions,
+incomplete drafts and persistent idempotency. Identity-session tests cover explicit
+confirmation and deduplication. Race tests and go vet passed. Real customer journeys
+were not exercised; application writes/payment initiation remain disabled.

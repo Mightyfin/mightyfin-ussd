@@ -39,6 +39,8 @@ func resolve(method, path string) (route, bool) {
 			return route{path: "/loan-applications/current", customer: true}, true
 		case "/v1/loans":
 			return route{path: "/loans", customer: true}, true
+		case "/v1/journey":
+			return route{customer: true}, true
 		case "/v1/kyc/status":
 			return route{path: "/kyc/status", customer: true}, true
 		}
@@ -47,6 +49,8 @@ func resolve(method, path string) (route, bool) {
 		switch path {
 		case "/v1/quote":
 			return route{path: "/loans/quote"}, true
+		case "/v1/identity/session":
+			return route{path: "/didit/session", customer: true, write: true}, true
 		case "/v1/applications":
 			return route{path: "/loan-applications", customer: true, write: true}, true
 		case "/v1/repayments/quote":
@@ -98,6 +102,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(s.ServiceKey) < 32 || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-USSD-Service-Key")), []byte(s.ServiceKey)) != 1 {
 		reply(w, 401, `{"error":"SERVICE_AUTH_REQUIRED"}`)
+		return
+	}
+	if r.URL.Path == "/v1/kyc/status" {
+		reply(w, 503, `{"error":"READ_ONLY_KYC_STATUS_UNAVAILABLE","message":"Use the journey endpoint for document requirements."}`)
 		return
 	}
 	target, ok := resolve(r.Method, r.URL.Path)
@@ -185,7 +193,34 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	send := func() (Result, error) { return s.Client.Call(ctx, r.Method, target.path, token, body) }
+	if r.URL.Path == "/v1/journey" {
+		result, e := s.Journey(ctx, token)
+		if e != nil {
+			reply(w, 503, `{"error":"JOURNEY_UNAVAILABLE"}`)
+			return
+		}
+		w.WriteHeader(result.Status)
+		_, _ = w.Write(result.Body)
+		return
+	}
+	if r.URL.Path == "/v1/identity/session" && r.Header.Get("X-USSD-Confirmation") != "verify_identity" {
+		reply(w, 400, `{"error":"EXPLICIT_IDENTITY_CONFIRMATION_REQUIRED"}`)
+		return
+	}
+	submitting := r.Method == "POST" && strings.HasSuffix(target.path, "/submit")
+	if submitting && (r.Header.Get("X-USSD-Confirmation") != "submit" || len(r.Header.Get("X-USSD-Journey-Version")) != 64) {
+		reply(w, 400, `{"error":"EXPLICIT_SUBMISSION_CONFIRMATION_REQUIRED"}`)
+		return
+	}
+	send := func() (Result, error) {
+		if submitting {
+			validation, e := s.confirmSubmission(ctx, token, target.path, r.Header.Get("X-USSD-Journey-Version"))
+			if e != nil || validation.Status != 0 {
+				return validation, e
+			}
+		}
+		return s.Client.Call(ctx, r.Method, target.path, token, body)
+	}
 	var result Result
 	var err error
 	if target.write {
@@ -198,7 +233,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			reply(w, 503, `{"error":"JOURNAL_UNAVAILABLE"}`)
 			return
 		}
-		sum := sha256.Sum256(bytes.Join([][]byte{[]byte(r.Method), []byte(target.path), body}, []byte{0}))
+		sum := sha256.Sum256(bytes.Join([][]byte{[]byte(r.Method), []byte(target.path), body, []byte(r.Header.Get("X-USSD-Journey-Version"))}, []byte{0}))
 		result, err = s.Journal.Do(user+":"+key, hex.EncodeToString(sum[:]), send)
 	} else {
 		result, err = send()

@@ -182,10 +182,17 @@ a private synthetic simulator; it is not a live LMS or operator integration.
 ## Admin LMS adapter
 
 `cmd/lmsbridge` is an independent backend using the existing LMS customer APIs. It
-provides products/quotes, customer-owned drafts, status, KYC status, loans, schedules
+provides products/quotes, customer-owned drafts, status, document requirements, loans, schedules
 and repayment quotes without importing the demo ledger. The deployed instance is
 read-only and private; application writes are separately gated and payment initiation
 is unavailable pending a verified customer-scoped collections adapter. It does not
 yet connect an operator session or replace the simulator's menu engine.
 
 See [API, security, verification and deployment details](deploy/LMS-ADAPTER.txt).
+
+The adapter now exposes `GET /v1/journey` to select the next action from current LMS
+application/loan data, and a confirmed, deduplicated identity-verification handoff via
+`POST /v1/identity/session`. Submission requires explicit confirmation and a fresh
+application snapshot. The legacy KYC status route is blocked because the deployed LMS
+implementation can mutate drafts during a GET. Identity approval and customer offer
+acceptance are not inferred from document completeness or application approval.
