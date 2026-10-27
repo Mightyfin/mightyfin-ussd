@@ -39,7 +39,7 @@ func resolve(method, path string) (route, bool) {
 			return route{path: "/loan-applications/current", customer: true}, true
 		case "/v1/loans":
 			return route{path: "/loans", customer: true}, true
-		case "/v1/journey":
+		case "/v1/journey", "/v1/journey/screen":
 			return route{customer: true}, true
 		case "/v1/kyc/status":
 			return route{path: "/kyc/status", customer: true}, true
@@ -193,11 +193,19 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if r.URL.Path == "/v1/journey" {
+	if r.URL.Path == "/v1/journey" || r.URL.Path == "/v1/journey/screen" {
 		result, e := s.Journey(ctx, token)
 		if e != nil {
 			reply(w, 503, `{"error":"JOURNEY_UNAVAILABLE"}`)
 			return
+		}
+		if r.URL.Path == "/v1/journey/screen" && result.Status == http.StatusOK {
+			var journey Journey
+			if json.Unmarshal(result.Body, &journey) != nil {
+				reply(w, 503, `{"error":"JOURNEY_UNAVAILABLE"}`)
+				return
+			}
+			result.Body, _ = json.Marshal(renderScreen(journey))
 		}
 		w.WriteHeader(result.Status)
 		_, _ = w.Write(result.Body)

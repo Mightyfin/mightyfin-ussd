@@ -39,7 +39,9 @@ GET   /v1/loans                         -> /loans (page/perPage only)
 GET   /v1/loans/{id}                    -> /loans/{id}
 GET   /v1/loans/{id}/schedule           -> /loans/{id}/repayment-schedule
 GET   /v1/loans/{id}/payments           -> /payments/history/{id}
-GET   /v1/kyc/status                    -> /kyc/status
+GET   /v1/kyc/status                    blocked: upstream GET mutates drafts
+GET   /v1/journey                       read-only next-action selection
+GET   /v1/journey/screen                read-only phone status screen
 POST  /v1/repayments/quote              -> /payments/early-repayment-calculation
 
 Example quote body:
@@ -95,7 +97,7 @@ Verification completed:
 
 Remaining before a live phone journey:
 - Operator/gateway callback format, authentication, session/deadline rules and trusted
-  subscriber identity; gateway-to-customer authorization and USSD menu rendering.
+  subscriber identity; gateway-to-customer authorization and interactive menus.
 - Real registration/KYC handoffs and versioned offers/acceptance integration.
 - Verified customer-scoped collections integration and business UAT.
 - Full isolated LMS end-to-end tests beyond the contract fixtures, operational
@@ -156,3 +158,31 @@ route or assessment POST. Submission tests cover absent confirmation, stale vers
 incomplete drafts and persistent idempotency. Identity-session tests cover explicit
 confirmation and deduplication. Race tests and go vet passed. Real customer journeys
 were not exercised; application writes/payment initiation remain disabled.
+
+Phone status screens — 27 October 2026
+
+GET /v1/journey/screen requires the same service key and LMS customer bearer token
+as /v1/journey. It reads the same authoritative resources and returns JSON:
+  text: short phone-friendly status, with "9 Refresh" and "0 Exit"
+  state: LMS-derived journey state
+  version: application snapshot version
+  choices: [{"key":"9","action":"refresh"},{"key":"0","action":"exit"}]
+The gateway must translate its wire protocol: refresh repeats this authenticated GET;
+exit terminates the operator session locally. This endpoint does not accept menu input,
+phone numbers, customer selectors or operator callbacks. No session is created here.
+These are status screens, not a complete application/repayment menu. They currently
+direct customers needing action to their officer. Even if writes are enabled, the
+screen never offers submission, identity-session creation, acceptance or payment.
+
+Each screen uses static ASCII text within 160 characters, including navigation.
+That is a conservative internal budget, not a verified operator limit; actual gateway
+encoding, prefixes, timeout and message limits must be checked before connecting it.
+Raw LMS text, customer/application IDs, document names, provider URLs and tokens are
+not copied into the screen. Responses are no-store. LMS failures remain errors and
+are never converted into an empty account or an approval. The gateway must terminate
+or show a generic retry message on non-200 responses, never display raw error bodies.
+
+Tests cover all status-screen lengths and privacy, both authentication layers,
+read-only repeated refreshes, rejected selectors/input/mutations, and upstream failure.
+The operator protocol and real customer end-to-end journey remain untested. The local
+simulator is unchanged and separate; no public Caddy route has been added.
