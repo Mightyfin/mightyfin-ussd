@@ -1,3 +1,7 @@
+Update: the separate adapter described in LMS-ADAPTER.txt now implements the initial
+LMS API layer. The observations below describe the original simulator and the
+remaining live channel work; the simulator itself remains disconnected.
+
 Admin LMS integration study — 27 October 2026
 
 Repository explicitly defers all external integration. Current code has no outgoing

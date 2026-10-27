@@ -1,0 +1,106 @@
+USSD / Admin LMS adapter — 27 October 2026
+
+Status: private backend integration implemented; live operator journey incomplete.
+The simulator remains separate. It has not been silently switched to real customers.
+No changes to Admin LMS controllers, schema, existing tokens or production workflows.
+
+Source modules:
+  internal/lmsbridge — allowlisted HTTP adapter and encrypted request journal
+  cmd/lmsbridge — private server, configuration and graceful shutdown
+  deploy/mightyfin-ussd-lms.service — supervised single-instance runtime
+
+Deployed service: mightyfin-ussd-lms.service (user systemd, enabled at boot)
+Listener: http://127.0.0.1:28091
+LMS upstream: https://admin.mightyfinance.co.zm/api/v1
+Configuration: /home/mightyfin/.config/mightyfin/ussd-lms/runtime.env
+Journal: /home/mightyfin/.local/share/mightyfin-ussd-lms/requests.enc
+Service secret and journal encryption key are private files outside Git.
+No public Caddy route is added. The simulator remains on localhost:28090.
+
+Authentication:
+Every adapter route except GET /healthz requires X-USSD-Service-Key. Customer routes
+also require Authorization: Bearer <existing LMS customer token>. The adapter verifies
+that token with LMS /users/profile and uses the resulting customer identity. Tokens
+are never persisted. An unverified number or customer ID is not an identity credential.
+LMS remains responsible for token audience, expiration, ownership and authorization.
+The eventual gateway adapter must establish this trusted customer context; it must not
+invent tokens or use the simulator's This is me button as live authentication.
+
+API (payloads/responses use the existing LMS contracts):
+GET   /v1/products                      -> /loans/config
+POST  /v1/quote                         -> /loans/quote
+GET   /v1/me                            -> /users/profile
+GET   /v1/applications/current          -> /loan-applications/current
+POST  /v1/applications                  -> /loan-applications
+PATCH /v1/applications/{id}             -> /loan-applications/{id}
+POST  /v1/applications/{id}/submit       -> /loan-applications/{id}/submit
+GET   /v1/applications/{id}/assessment  -> /loan-applications/{id}/assessment
+GET   /v1/loans                         -> /loans (page/perPage only)
+GET   /v1/loans/{id}                    -> /loans/{id}
+GET   /v1/loans/{id}/schedule           -> /loans/{id}/repayment-schedule
+GET   /v1/loans/{id}/payments           -> /payments/history/{id}
+GET   /v1/kyc/status                    -> /kyc/status
+POST  /v1/repayments/quote              -> /payments/early-repayment-calculation
+
+Example quote body:
+  {"loanProductId":7,"loanAmount":"1000.00","repaymentMonths":3}
+Example draft body (use an actual LMS product, not demo salary/business IDs):
+  {"loan_product_id":7,"amount":"1000.00","loan_term":3,"purpose":"Working capital"}
+These IDs/amounts are syntax examples, not approved product terms.
+Application requirements/validation come from LMS. Its submit endpoint currently
+requires completed profile/documents; the adapter does not bypass that to imitate
+the demo. Application/offer/balance/pricing logic is not duplicated in Go.
+
+Write control and retry rules:
+USSD_LMS_ENABLED=true starts the private service. Application mutations also require
+USSD_LMS_WRITES_ENABLED=true; deployed value is false. A write needs Idempotency-Key
+(1–80 ASCII letters/digits/underscore/hyphen). Keys are bound to the verified customer.
+The journal reserves the key durably before the upstream request and stores the result
+using AES-GCM, 0600 files, fsync and atomic rename. Identical completed requests replay;
+changed requests with the same key return 409. Network errors, server errors, 408/429
+and interrupted writes remain unresolved and must be reconciled, not resent blindly
+with a new key. A 4xx validation result is also replayed; use a new key for corrected
+input after confirming no write occurred. No automatic upstream retry is performed.
+Secrets must remain private regular files; journal key is exactly 32 raw bytes.
+
+Single-instance limitation:
+The systemd unit uses flock and a dedicated directory. Always use this unit; never
+start multiple independent processes against one journal. Capacity is 10,000 recorded
+keys; reaching it fails closed. No automatic eviction is implemented, since losing
+old keys would allow replay. Multi-instance rollout needs a transactional shared
+idempotency store and a reviewed reconciliation/retention process.
+
+Payments intentionally unavailable:
+POST /v1/repayments returns ACTION_DISABLED in this deployment. Even enabling the
+payments flag cannot activate it: the implementation returns 501 until the verified
+collections adapter exists. The customer early-repayment endpoint posts a repayment
+without initiating a provider collection and must not be used as a USSD payment rail.
+The proper LMS integration collections service already handles initiation, verified
+callbacks and posting. Its integration credential is not customer scoped. A narrowly
+scoped customer-to-real-loan ownership adapter is needed before exposing it to USSD;
+LoanResource can fall back from loan ID to application ID, so those IDs cannot simply
+be treated as interchangeable. No broad integration credential has been provisioned.
+
+Verification completed:
+- Normal Go tests, race tests and go vet.
+- Isolated TLS contract fixtures: customer separation, denied identity overrides,
+  upstream ownership rejection, LMS validation/document responses, write gates,
+  concurrent duplicate suppression, replay after restart, encrypted journal, uncertain
+  write reservation, disk failure preventing upstream action and redirect rejection.
+- Live read-only checks: authenticated service catalogue read (200), missing service
+  key (401), invalid LMS customer token (401), quote validation (422), successful quote
+  using LMS product defaults (200), disabled writes
+  and payments (503). No live customer token was created and no live application,
+  payment, notification or loan record was written.
+
+Remaining before a live phone journey:
+- Operator/gateway callback format, authentication, session/deadline rules and trusted
+  subscriber identity; gateway-to-customer authorization and USSD menu rendering.
+- Real registration/KYC handoffs and versioned offers/acceptance integration.
+- Verified customer-scoped collections integration and business UAT.
+- Full isolated LMS end-to-end tests beyond the contract fixtures, operational
+  reconciliation and multi-instance persistence before enabling production writes.
+
+Rollback: systemctl --user disable --now mightyfin-ussd-lms.service
+Preserve the journal AND key. Never delete unresolved requests to bypass a conflict.
+Stopping this service does not stop Admin LMS or the separate simulator.

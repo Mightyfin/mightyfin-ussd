@@ -1,9 +1,9 @@
 # MightyFin USSD app
 
-Status: **Standalone local Go application and browser simulator. External integrations deferred.**
+Status: **Local simulator plus a separate private Admin LMS adapter. Live operator integration is not yet enabled.**
 
-Based on the 22 October 2026 version 1.2 requirements. All identities, offers, balances and
-payments are synthetic. The app makes no outgoing API calls and needs no accounts, provider
+The simulator is based on the 22 October 2026 version 1.2 requirements. Its identities, offers, balances and
+payments are synthetic. The simulator makes no outgoing API calls and needs no accounts, provider
 credentials, database server, JavaScript build tools or third-party Go packages.
 
 ## Run
@@ -178,3 +178,14 @@ demo-token protections still apply. SIGINT and SIGTERM both shut down gracefully
 See [deployment instructions](deploy/README.txt) and the
 [Admin LMS integration study](deploy/ADMIN-LMS-INTEGRATION.txt). This instance remains
 a private synthetic simulator; it is not a live LMS or operator integration.
+
+## Admin LMS adapter
+
+`cmd/lmsbridge` is an independent backend using the existing LMS customer APIs. It
+provides products/quotes, customer-owned drafts, status, KYC status, loans, schedules
+and repayment quotes without importing the demo ledger. The deployed instance is
+read-only and private; application writes are separately gated and payment initiation
+is unavailable pending a verified customer-scoped collections adapter. It does not
+yet connect an operator session or replace the simulator's menu engine.
+
+See [API, security, verification and deployment details](deploy/LMS-ADAPTER.txt).

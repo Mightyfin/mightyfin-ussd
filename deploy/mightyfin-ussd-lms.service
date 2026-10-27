@@ -1,0 +1,17 @@
+[Unit]
+Description=MightyFin private USSD to Admin LMS adapter
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mightyfin/production/mightyfin-ussd
+EnvironmentFile=/home/mightyfin/.config/mightyfin/ussd-lms/runtime.env
+ExecStart=/usr/bin/flock --nonblock --no-fork /home/mightyfin/.local/share/mightyfin-ussd-lms/instance.lock /home/mightyfin/.local/lib/mightyfin-ussd/lmsbridge
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
