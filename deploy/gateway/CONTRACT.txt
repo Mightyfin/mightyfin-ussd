@@ -75,7 +75,10 @@ Sessions, retries and timing:
 - Identical retries replay the prior screen during the session lifetime. These are
   read-only snapshots, not current authorization for any financial action.
 - Missing/expired sessions with nonempty text end with a redial message.
-- Upstream reads have a 4-second deadline. Propose an operator timeout of at least
+- Callback processing, including waiting behind another session request, has a
+  4-second deadline. Cancelled queued callbacks return 503 and do not update the
+  session. Expiry is checked again after acquiring the session guard.
+  Propose an operator timeout of at least
   8 seconds, subject to the operator's actual network budget.
 - No request bodies, numbers, customer tokens or operator keys are logged by this
   application. In-memory rendered status is cleared when sessions expire/restart.

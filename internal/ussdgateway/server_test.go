@@ -144,3 +144,27 @@ func TestCapacityAndClosedSessions(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
+
+func TestWaitingCallbackHonorsCancellation(t *testing.T) {
+	s := &Server{Key: testKey, Reader: &fakeReader{}}
+	callback(s, "blocked", "", "260970000001", "")
+	s.sessions["blocked"].gate <- struct{}{}
+	defer func() { <-s.sessions["blocked"].gate }()
+	form := url.Values{"sessionId": {"blocked"}, "phoneNumber": {"260970000001"}, "serviceCode": {"*123#"}, "text": {"1"}}
+	ctx, cancel := context.WithCancel(context.Background())
+	r := httptest.NewRequest("POST", "/ussd", strings.NewReader(form.Encode())).WithContext(ctx)
+	r.Header.Set("Authorization", "Bearer "+testKey)
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() { s.ServeHTTP(w, r); close(done) }()
+	cancel()
+	select {
+	case <-done:
+		if w.Code != 503 {
+			t.Fatal(w.Code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled callback remained blocked behind session lock")
+	}
+}

@@ -1,0 +1,72 @@
+USSD pre-launch verification — 27 October 2026
+
+Decision: suitable for operator integration testing of the read-only pilot.
+NOT ready for a live customer lending launch.
+
+Production-path checks
+48/48 passed through https://ussd.mightyfinance.co.zm:
+- Cloudflare -> dedicated Caddy -> gateway -> private adapter -> real LMS catalogue.
+- Initial menu, actual catalogue names, Back, Exit, identical-request replay.
+- Missing operator authentication, invalid customer token, phone-only status denied.
+- Bad/extra/duplicate fields, invalid encoding/phone, JSON and oversized requests.
+- Query selectors, private application/payment/API routes and wrong methods rejected.
+- Session identity changes, skipped input, unknown/ended sessions and invalid choices.
+- Eight concurrent duplicate callbacks and eight independent sessions, at concurrency 4.
+- Plain-text CON/END responses, no-store header and 160-character response budget.
+Median 62.8 ms; p95 157.1 ms; maximum 213.3 ms in this small server-origin sample.
+These are HTTP timings, not mobile-network latency or sustained capacity evidence.
+
+Restart test passed through the public hostname. Sessions are intentionally in
+memory: pre-restart input receives a redial message; new sessions work. This is
+not seamless session continuity and is not multi-instance deployment support.
+
+Cross-component HTTP tests
+The actual gateway and actual BridgeReader call the actual LMS adapter, then a TLS
+LMS CONTRACT FIXTURE. Eleven cases cover: no application, incomplete profile,
+missing documents, complete unsubmitted draft, pending, approved, rejected, active
+loan, unknown balance, malformed LMS response, upstream outage. Each case also
+tests two customer identities, invalid authentication and identical-request replay.
+No upstream mutation is permitted. All status screens fit the callback size budget.
+This proves component integration against a fixture, not against a live customer's
+database record, identity provider, lender decision engine or mobile operator.
+
+Normal Go tests, race tests and go vet passed across the repository. Existing tests
+also cover session expiry/capacity and adapter ownership/idempotency/write gates.
+
+Fix found during review
+Waiting on a session mutex previously sat outside the callback timeout. Replaced
+it with a context-aware session guard and rechecked expiry after acquiring it.
+A cancelled waiting request now exits without modifying the session. Regression
+test passes; fix deployed. All three USSD user services active; Caddy healthy.
+
+Unverified or missing before a customer lending launch
+1. Hobbiton's real callback mapping, assigned code, headers, CON/END handling and
+   network timeout; real handset tests on the supported mobile operators.
+2. Secure phone-to-customer registration/login and account binding. Operator key
+   alone does not grant customer access. Valid live-customer status was NOT tested;
+   authenticated states were verified against TLS contract fixtures only.
+3. Customer application entry, document/KYC handoff, explicit submission, customer
+   offer review/acceptance, disbursement and verified collection/repayment flow.
+   These are not exposed by this operator gateway. No product selection or amount
+   entry exists in this pilot; it displays catalogue names only.
+4. Real provider/database end-to-end lending tests with designated test accounts,
+   including failures, reconciliation and consent, before enabling financial writes.
+5. Sustained operator-volume capacity tests and operational handling of session
+   loss on restart. This limited concurrency sample is not a load certification.
+6. Hobbiton's actual client through Cloudflare. Default Python urllib User-Agent
+   was blocked (403/error 1010) during earlier work. The documented pilot identifier
+   passes; no Cloudflare protections were disabled.
+
+No real customer credentials were minted, and no production application, KYC
+session, loan, payment or notification was created by these verification steps.
+No SMS was sent. Synthetic phone inputs identify callback tests only; they are not
+used to query a customer account or contact a person.
+
+Detailed local artifacts:
+  /home/mightyfin/reports/ussd-readiness-20261027/public-results.json
+  /home/mightyfin/reports/ussd-readiness-20261027/public_test.py
+  /home/mightyfin/reports/ussd-readiness-20261027/restart-prepare.json
+  /home/mightyfin/reports/ussd-readiness-20261027/restart-check.json
+Tests in repo:
+  internal/lmsbridge/gateway_e2e_test.go
+  internal/ussdgateway/server_test.go

@@ -27,7 +27,7 @@ type Reader interface {
 }
 
 type session struct {
-	mu        sync.Mutex
+	gate      chan struct{}
 	binding   [32]byte
 	expires   time.Time
 	last      string
@@ -102,6 +102,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Do not store numbers or bearer tokens. Session identity is immutable.
 	binding := sha256.Sum256([]byte(strings.TrimPrefix(phone, "+") + "\x00" + code + "\x00" + token))
+	// Include time queued behind another callback in the request deadline.
+	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	defer cancel()
 	now := time.Now()
 	s.mu.Lock()
 	if s.sessions == nil {
@@ -119,12 +122,25 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			output(w, 200, "END Session expired or unavailable. Please dial again.")
 			return
 		}
-		current = &session{binding: binding, expires: now.Add(5 * time.Minute), responses: make(map[string]string)}
+		current = &session{gate: make(chan struct{}, 1), binding: binding, expires: now.Add(5 * time.Minute), responses: make(map[string]string)}
 		s.sessions[id] = current
 	}
 	s.mu.Unlock()
-	current.mu.Lock()
-	defer current.mu.Unlock()
+	select {
+	case current.gate <- struct{}{}:
+		defer func() { <-current.gate }()
+	case <-ctx.Done():
+		output(w, 503, "END Service busy. Please dial again.")
+		return
+	}
+	if ctx.Err() != nil {
+		output(w, 503, "END Service busy. Please dial again.")
+		return
+	}
+	if time.Now().After(current.expires) {
+		output(w, 200, "END Session expired. Please dial again.")
+		return
+	}
 	if current.binding != binding {
 		output(w, 409, "END Session identity changed. Please dial again.")
 		return
@@ -146,8 +162,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		output(w, 409, "END Send each selection in order.")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
-	defer cancel()
 	response := s.render(ctx, text, token)
 	current.last = text
 	current.ended = strings.HasPrefix(response, "END ")
