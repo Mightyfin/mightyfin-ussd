@@ -1,36 +1,44 @@
-USSD public edge preparation
+USSD Cloudflare edge and proposed callback pilot
 
-Deploy with:
-  docker compose -f deploy/gateway/compose.yaml up -d
-
-Cloudflare Tunnel published application (host cloudflared on this server):
-  Subdomain: ussd
-  Domain: mightyfinance.co.zm
+Cloudflare published application:
+  Hostname: ussd.mightyfinance.co.zm
   Path: empty
-  Service type: HTTP
+  Type: HTTP
   Service URL: http://127.0.0.1:28092
   Additional settings: defaults
 
-Cloudflare terminates public HTTPS. The tunnel connects to loopback HTTP.
-Do not use HTTPS for this local listener. Do not point the tunnel at the private
-LMS adapter (28091) or demo simulator (28090).
+Topology:
+  Cloudflare HTTPS -> host cloudflared -> Caddy 127.0.0.1:28092
+  -> gateway user service 127.0.0.1:28093 -> private LMS adapter 127.0.0.1:28091
+Only /ussd and /healthz are proxied. The demo simulator is never exposed.
+Caddy uses host networking to reach the user service, but listens ONLY on loopback.
+Do not point the tunnel at ports 28090, 28091 or 28093 directly.
 
-This dedicated Caddy container restarts unless stopped and publishes only on
-127.0.0.1. It has no LMS credentials, customer data or upstream proxy route.
-GET /healthz returns 200 with callback_ready=false: edge liveness only.
-/ussd returns 503 USSD_NOT_READY until the operator protocol/authentication is
-implemented. All other paths return 404. No callback is processed or recorded.
-The image's Caddy executable needs NET_BIND_SERVICE because of its file capability;
-other capabilities are dropped. Filesystem is read-only with ephemeral data/config.
+Gateway binary: /home/mightyfin/.local/lib/mightyfin-ussd/ussdgateway
+Unit: deploy/mightyfin-ussd-gateway.service (user systemd; enabled at boot)
+Private config: /home/mightyfin/.config/mightyfin/ussd-gateway/runtime.env
+Private operator credential: same directory, operator.key (0600)
+The key is separate from the LMS service credential and customer tokens.
+To rotate it: replace operator.key with a random 32+ character secret, restart
+mightyfin-ussd-gateway.service, then securely distribute the replacement. Existing
+sessions end on restart. Never commit credentials or log callback headers/bodies.
 
-Expected public callback: https://ussd.mightyfinance.co.zm/ussd
-Health check after saving the tunnel: https://ussd.mightyfinance.co.zm/healthz
+Build:
+  go build -o /home/mightyfin/.local/lib/mightyfin-ussd/ussdgateway.next ./cmd/ussdgateway
+  mv /home/mightyfin/.local/lib/mightyfin-ussd/ussdgateway.next /home/mightyfin/.local/lib/mightyfin-ussd/ussdgateway
+  systemctl --user restart mightyfin-ussd-gateway.service
+Deploy edge:
+  docker compose -f deploy/gateway/compose.yaml up -d
+Caddy admin API is off; recreate/restart its container after changing Caddyfile.
+The image needs NET_BIND_SERVICE for the executable's file capability, even when
+using a high port. Other capabilities are dropped. Filesystem is read-only.
 
-Validated locally: health=200, callback=503, private API and root=404.
-Public DNS did not resolve at deployment time; external connectivity remains to
-be verified after the Cloudflare route is saved. A successful health check does
-not mean that the operator callback or customer journey is ready.
+See CONTRACT.txt for exact callback format, pilot limits and operator test steps.
+callback_ready=true means the proposed callback is implemented, NOT that Hobbiton
+has accepted it, assigned a live code, or that financial/customer onboarding flows
+are enabled. Health is liveness; the operator must perform end-to-end acceptance.
 
-Rollback:
+Rollback/disable public pilot:
   docker compose -f deploy/gateway/compose.yaml down
-This stops only the dedicated edge. The private LMS adapter and simulator remain.
+  systemctl --user disable --now mightyfin-ussd-gateway.service
+This leaves the LMS adapter, Admin LMS and demo simulator unchanged.

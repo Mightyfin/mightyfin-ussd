@@ -1,0 +1,17 @@
+[Unit]
+Description=Mighty Finance USSD operator callback pilot
+After=mightyfin-ussd-lms.service
+Wants=mightyfin-ussd-lms.service
+
+[Service]
+Type=simple
+EnvironmentFile=/home/mightyfin/.config/mightyfin/ussd-gateway/runtime.env
+ExecStart=/home/mightyfin/.local/lib/mightyfin-ussd/ussdgateway
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

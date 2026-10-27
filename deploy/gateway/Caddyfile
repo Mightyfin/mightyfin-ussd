@@ -3,22 +3,24 @@
 	auto_https off
 }
 
-:8080 {
+http://:28092 {
+	bind 127.0.0.1
 	header {
-		Content-Type application/json
 		Cache-Control no-store
 		X-Content-Type-Options nosniff
 		-Server
 	}
-	@health {
-		method GET HEAD
-		path /healthz
-	}
-	handle @health {
-		respond `{"status":"ok","service":"ussd-gateway","callback_ready":false}` 200
-	}
-	handle /ussd {
-		respond `{"error":"USSD_NOT_READY","message":"Operator integration is not configured."}` 503
+	@callback path /healthz /ussd
+	handle @callback {
+		request_body {
+			max_size 8KB
+		}
+		reverse_proxy 127.0.0.1:28093 {
+			transport http {
+				dial_timeout 1s
+				response_header_timeout 6s
+			}
+		}
 	}
 	handle {
 		respond `{"error":"NOT_FOUND"}` 404

@@ -1,0 +1,110 @@
+Mighty Finance USSD callback — proposed contract v1
+
+This contract is implemented for a read-only pilot. It is our proposed interface,
+not a claim that Hobbiton has supplied or accepted this format. Hobbiton can map
+its gateway to this contract or send the differences for an adapter change.
+
+Callback: https://ussd.mightyfinance.co.zm/ussd
+Liveness: https://ussd.mightyfinance.co.zm/healthz
+Method: POST
+Content-Type: application/x-www-form-urlencoded
+Authorization: Bearer <restricted operator pilot key>
+User-Agent: MightyFinance-USSD-Pilot/1.0 (tested client identifier)
+
+Exactly four form fields (all required, text may be empty):
+  sessionId   Unique per dial attempt; 1–80 letters, digits, underscores or hyphens.
+  phoneNumber Zambian international number, e.g. +260970000001 or 260970000001.
+              URL-encode the plus sign as %2B; curl --data-urlencode does this.
+  serviceCode Actual assigned dialling code; digits, * and #; at most 32 chars.
+  text        Cumulative input separated by *, initially empty; at most 128 chars.
+              Send one new selection each callback, e.g. empty -> 1 -> 1*9 -> 1*9*0.
+No query parameters, JSON bodies, duplicate fields or extra fields are accepted.
+The example code *123# is illustrative and is NOT an assigned Mighty Finance code.
+
+Example initial request (replace key and service code):
+  curl --request POST 'https://ussd.mightyfinance.co.zm/ussd' \
+    --header 'Authorization: Bearer <OPERATOR_PILOT_KEY>' \
+    --header 'User-Agent: MightyFinance-USSD-Pilot/1.0' \
+    --data-urlencode 'sessionId=pilot-unique-session-001' \
+    --data-urlencode 'phoneNumber=+260970000001' \
+    --data-urlencode 'serviceCode=*123#' \
+    --data-urlencode 'text='
+
+HTTP 200 response, Content-Type text/plain; charset=utf-8:
+  CON Mighty Finance
+  1 Loan products
+  2 Application status
+  0 Exit
+
+CON means continue the session. END means terminate it. Do not display these
+prefixes as menu content if your gateway uses them as control markers. Every
+menu response fits our 160-character budget including prefix/navigation; verify
+that this matches Hobbiton's encoding and network limits.
+
+Menu:
+  1: live LMS product names, with no promise of eligibility. 9 returns to main menu.
+  2: application status requires a separately authenticated LMS customer token.
+     Without one the session ends with an officer/sign-in handoff message.
+     With one, 9 refreshes status; 0 exits.
+  0: exit.
+Invalid selections end the session. Product listing is informational: no product
+selection, quote acceptance, application creation, notification or payment is made.
+
+Customer authorization:
+The operator key authenticates Hobbiton's callback only. It does NOT authorize
+access to a customer's account. For a controlled authenticated status test, supply
+X-LMS-Customer-Token: <valid existing LMS customer token> on EVERY callback,
+including the initial one. LMS validates its audience, expiration and ownership.
+Never put this token in text, a phone-number field, a URL, a screenshot or email.
+A phone number alone is never used to find or impersonate an LMS account. For real
+phone-only customers, secure account linking/authentication still needs integration.
+The supplied token is authoritative for identity; subscriber-to-account binding is
+not asserted by this pilot. Do not enable customer status in a public operator launch
+until that binding is implemented and tested. No customer token is included in the
+operator integration pack. Use a new session if authentication context changes.
+
+Sessions, retries and timing:
+- Five-minute lifetime from first request; up to 2,000 sessions and 32 responses
+  per session. State is memory-only, single process. Restart requires redial.
+- Mobile number, service code and customer-token fingerprint are bound to the
+  session; changing them returns HTTP 409. Session IDs must be unique per dial.
+- Retry with exactly the same session and full text to replay the cached response.
+  Do not retry using a new session ID for the same dial attempt.
+- Only one new selection per request. Skipping intermediate callbacks or branching
+  from an earlier menu path returns 409. Fresh refresh input triggers a fresh read.
+- Identical retries replay the prior screen during the session lifetime. These are
+  read-only snapshots, not current authorization for any financial action.
+- Missing/expired sessions with nonempty text end with a redial message.
+- Upstream reads have a 4-second deadline. Propose an operator timeout of at least
+  8 seconds, subject to the operator's actual network budget.
+- No request bodies, numbers, customer tokens or operator keys are logged by this
+  application. In-memory rendered status is cleared when sessions expire/restart.
+
+HTTP errors:
+  400 malformed callback; 401 operator credential missing/invalid;
+  404 unsupported path; 405 wrong method; 409 session identity/sequence conflict;
+  413 body exceeds 8 KB; 415 wrong content type.
+Infrastructure may return 502/503/504. Treat non-200 as failed callbacks; terminate
+or show a generic temporary-unavailability message, never raw infrastructure text.
+The adapter's upstream/customer failures produce an HTTP 200 END message without
+account details. Do not interpret a health check as an end-to-end LMS readiness test.
+Cloudflare rejected the default Python urllib User-Agent with HTTP 403/error 1010
+during testing; the explicit client identifier above passed. Confirm the operator's
+real HTTP client against Cloudflare before rollout. No zone security was disabled.
+
+Health JSON explicitly reports:
+  callback_ready=true
+  contract=mightyfin-v1-proposed
+  mode=read-only-pilot
+  customer_onboarding_ready=false
+  financial_actions_enabled=false
+
+Operator acceptance checklist:
+1. Match this callback format or send the required differences.
+2. Provision the assigned dialling code and route it to the callback URL.
+3. Confirm headers/authentication, cumulative text, timeout and CON/END semantics.
+4. Test initial menu, live products, Back, Exit, retry, expiry and failed auth.
+5. Arrange separate authenticated-customer tests before any real customer rollout.
+
+No applications, KYC sessions, credit decisions, offers, disbursements or payments
+are initiated by this operator gateway. Those integrations are separate work.

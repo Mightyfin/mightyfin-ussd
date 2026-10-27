@@ -3,8 +3,7 @@ services:
   gateway:
     image: caddy:2.11-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:28092:8080"
+    network_mode: host
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     read_only: true
@@ -19,7 +18,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:28092/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
