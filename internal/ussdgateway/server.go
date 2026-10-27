@@ -34,11 +34,13 @@ type session struct {
 	last      string
 	ended     bool
 	responses map[string]string
+	payLoans  []PayLoan
 }
 
 type Server struct {
 	Key      string
 	Reader   Reader
+	Payments Payments
 	mu       sync.Mutex
 	sessions map[string]*session
 }
@@ -54,7 +56,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	if r.Method == "GET" && r.URL.Path == "/healthz" {
 		w.Header().Set("Content-Type", "application/json")
-		output(w, 200, `{"status":"ok","service":"ussd-gateway","callback_ready":true,"contract":"mightyfin-v1-proposed","mode":"read-only-pilot","customer_onboarding_ready":false,"financial_actions_enabled":false}`)
+		mode := "read-only-pilot"
+		if s.Payments != nil {
+			mode = "payments-pilot"
+		}
+		ready := false
+		if p, ok := s.Payments.(interface{ Ready(context.Context) bool }); ok {
+			ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+			ready = p.Ready(ctx)
+			cancel()
+		}
+		b, _ := json.Marshal(map[string]any{"status": "ok", "service": "ussd-gateway", "callback_ready": true, "contract": "mightyfin-v1-proposed", "mode": mode, "customer_onboarding_ready": false, "payment_menu_enabled": s.Payments != nil, "financial_actions_enabled": ready})
+		output(w, 200, string(b))
 		return
 	}
 	if r.URL.Path != "/ussd" {
@@ -97,7 +110,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	id, phone, code, text := form.Get("sessionId"), form.Get("phoneNumber"), form.Get("serviceCode"), form.Get("text")
 	token := r.Header.Get("X-LMS-Customer-Token")
-	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || !serviceCode.MatchString(code) || len(text) > 128 || !menuInput.MatchString(text) || len(token) > 4096 || !printableToken(token) || len(r.Header.Values("X-LMS-Customer-Token")) > 1 {
+	payText := paymentPath(text)
+	isPayment := s.Payments != nil && paymentInput.MatchString(payText)
+	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || !serviceCode.MatchString(code) || len(text) > 128 || (!menuInput.MatchString(text) && !isPayment) || len(token) > 4096 || !printableToken(token) || len(r.Header.Values("X-LMS-Customer-Token")) > 1 {
 		output(w, 400, "END Invalid callback fields.")
 		return
 	}
@@ -183,8 +198,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		output(w, 409, "END Send each selection in order.")
 		return
 	}
-	response := s.render(ctx, text, token)
-	if ctx.Err() != nil {
+	var response string
+	if isPayment {
+		response = s.paymentScreen(ctx, current, payText, strings.TrimPrefix(phone, "+"), id)
+	} else {
+		response = s.render(ctx, text, token)
+	}
+	if ctx.Err() != nil && !isPayment {
 		// A timed-out or disconnected read must not consume the selection. The
 		// operator can retry the same input after the upstream recovers.
 		output(w, 503, "END Service unavailable. Please try again.")
@@ -258,6 +278,9 @@ func stateFor(text string) string {
 func (s *Server) render(ctx context.Context, text, token string) string {
 	switch stateFor(text) {
 	case "home":
+		if s.Payments != nil {
+			return "CON Mighty Finance\n1 Loan products\n2 Application status\n3 Make payment\n4 Payment status\n0 Exit"
+		}
 		return "CON Mighty Finance\n1 Loan products\n2 Application status\n0 Exit"
 	case "exit":
 		return "END Thank you for choosing Mighty Finance."

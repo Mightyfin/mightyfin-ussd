@@ -42,3 +42,8 @@ Rollback/disable public pilot:
   docker compose -f deploy/gateway/compose.yaml down
   systemctl --user disable --now mightyfin-ussd-gateway.service
 This leaves the LMS adapter, Admin LMS and demo simulator unchanged.
+
+Payment extension: options 3/4 now use the separate private LMS payment module on
+localhost:28094. See ../payments/README.txt for identity trust, tests, accounting
+activation blocker and rollback. The earlier read-only description applies only
+to the original catalogue/application-status routes.

@@ -1,6 +1,6 @@
 Mighty Finance USSD callback — proposed contract v1
 
-This contract is implemented for a read-only pilot. It is our proposed interface,
+This contract is implemented for a payments pilot. It is our proposed interface,
 not a claim that Hobbiton has supplied or accepted this format. Hobbiton can map
 its gateway to this contract or send the differences for an adapter change.
 
@@ -18,7 +18,8 @@ Exactly four form fields (all required, text may be empty):
   serviceCode Actual assigned dialling code; digits, * and #; at most 32 chars.
   text        Cumulative input separated by *, initially empty; at most 128 chars.
               Send one new selection each callback, e.g. empty -> 1 -> 1*9 -> 1*9*0.
-              Each selection is one ASCII digit. Whitespace, Unicode digits,
+              Menu choices are single ASCII digits; payment amount entry accepts up
+              to seven integer digits and two decimal places. Whitespace, Unicode digits,
               control characters and empty intermediate selections are rejected.
 No query parameters, JSON bodies, duplicate fields or extra fields are accepted.
 Authorization, Content-Type and customer-token headers must not be duplicated.
@@ -38,6 +39,8 @@ HTTP 200 response, Content-Type text/plain; charset=utf-8:
   CON Mighty Finance
   1 Loan products
   2 Application status
+  3 Make payment
+  4 Payment status
   0 Exit
 
 CON means continue the session. END means terminate it. Do not display these
@@ -51,13 +54,23 @@ Menu:
   2: application status requires a separately authenticated LMS customer token.
      Without one the session ends with an officer/sign-in handoff message.
      With one, 9 refreshes status; 0 exits.
+  3: select an eligible loan, enter a ZMW amount and explicitly confirm payment.
+     Example cumulative path: 3 -> 3*1 -> 3*1*25.00 -> 3*1*25.00*1.
+     0 cancels. The caller number is the payer; there is no alternative payer input.
+  4: select a loan to check the latest payment on this USSD channel. Closed loans
+     with payment history remain available for status checks.
   0: exit.
-Invalid selections end the session. Product listing is informational: no product
-selection, quote acceptance, application creation, notification or payment is made.
+Invalid selections end the session. Product browsing remains informational.
+The payment menu does not request a wallet PIN; authorization happens only in the
+mobile-money provider prompt. No provider brand is displayed in customer messages.
 
 Customer authorization:
-The operator key authenticates Hobbiton's callback only. It does NOT authorize
-access to a customer's account. For a controlled authenticated status test, supply
+The operator key authenticates Hobbiton's callback. Payment options 3/4 rely on
+its operator-supplied subscriber number, not a customer PIN, OTP or token. The
+private LMS payment module restricts loans to the uniquely matched phone account.
+This requires Hobbiton to supply the trusted calling number and keep the operator
+key private; a caller-typed number is not acceptable. Wallet debit authorization
+is performed by the mobile-money provider. For application status (option 2), supply
 X-LMS-Customer-Token: <valid existing LMS customer token> on EVERY callback,
 including the initial one. LMS validates its audience, expiration and ownership.
 Never put this token in text, a phone-number field, a URL, a screenshot or email.
@@ -70,7 +83,7 @@ A failed authentication recheck removes earlier customer screens from that sessi
 This comparison is not proof of phone possession: Hobbiton's subscriber-number
 provenance and callback authentication still require operator acceptance testing.
 No customer token is included in the operator pack. Use a new session if the
-authentication context changes. PIN-free phone/OTP sign-in is planned, not enabled.
+authentication context changes. No PIN/password/OTP sign-in is required for the payment menu.
 NRC is an identification/matching field only, never an authentication credential.
 
 Sessions, retries and timing:
@@ -92,7 +105,11 @@ Sessions, retries and timing:
   4-second deadline. Cancelled queued callbacks return 503 and do not update the
   session. Expiry is checked again after acquiring the session guard.
   Cancellation/timeout during an upstream read returns 503 without consuming the
-  selection or caching a terminal response; retry the same cumulative input.
+  selection or caching a terminal response for read-only account screens. Payment
+  initiation timeouts instead return a processing message: an external request may
+  already exist. Check payment status before starting another request. The durable
+  LMS idempotency key protects an identical confirmation, including after timeout.
+  Another unresolved collection on the same loan blocks a fresh payment prompt.
   Propose an operator timeout of at least
   8 seconds, subject to the operator's actual network budget.
 - No request bodies, numbers, customer tokens or operator keys are logged by this
@@ -113,9 +130,10 @@ real HTTP client against Cloudflare before rollout. No zone security was disable
 Health JSON explicitly reports:
   callback_ready=true
   contract=mightyfin-v1-proposed
-  mode=read-only-pilot
+  mode=payments-pilot
   customer_onboarding_ready=false
-  financial_actions_enabled=false
+  payment_menu_enabled=true
+  financial_actions_enabled=false until provider and clearing-account configuration pass
 
 Operator acceptance checklist:
 1. Match this callback format or send the required differences.
@@ -124,5 +142,11 @@ Operator acceptance checklist:
 4. Test initial menu, live products, Back, Exit, retry, expiry and failed auth.
 5. Arrange separate authenticated-customer tests before any real customer rollout.
 
-No applications, KYC sessions, credit decisions, offers, disbursements or payments
-are initiated by this operator gateway. Those integrations are separate work.
+Loan repayment initiation and verification are connected to existing LMS collection
+services. Applications, KYC, offers and disbursements remain separate work.
+A real wallet prompt/debit and operator handset acceptance test remain required;
+configuration readiness and mocked tests do not establish provider availability.
+
+Deployment note: a missing Lipila clearing-account mapping currently blocks new
+collections before provider initiation. Do not mistake the deployed menu for live
+payment activation. See deploy/payments/README.txt for the remaining configuration.
