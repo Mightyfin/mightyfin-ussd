@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"regexp"
 )
+
+var decimalBalance = regexp.MustCompile(`^[0-9]{1,18}(\.[0-9]{1,8})?$`)
 
 type NextAction struct {
 	Code                 string `json:"code"`
@@ -104,7 +107,7 @@ func planJourney(app, loans Result, writes bool) (Journey, error) {
 					j.Message = "Documents are needed. Continue through the existing customer portal or an officer."
 					j.Action = NextAction{Code: "document_handoff", Label: "Complete documents", Enabled: false}
 				}
-				if a.Completion.Complete && len(j.MissingProfile) == 0 && len(j.MissingDocuments) == 0 {
+				if a.Completion.Complete && a.Completion.MissingProfile != nil && a.Completion.MissingDocuments != nil && len(j.MissingProfile) == 0 && len(j.MissingDocuments) == 0 {
 					j.State = "ready_for_submission"
 					j.Message = "Your application is ready for review and confirmation."
 					j.Action = NextAction{Code: "review_submission", Label: "Review application", Enabled: writes, ConfirmationRequired: true}
@@ -174,7 +177,7 @@ func positiveAmount(raw json.RawMessage) (bool, bool) {
 			return false, false
 		}
 	}
-	if value == "" || value == "null" {
+	if !decimalBalance.MatchString(value) {
 		return false, false
 	}
 	// No float conversions or financial calculations in the channel.
@@ -213,7 +216,7 @@ func (s *Server) confirmSubmission(ctx context.Context, token, path, version str
 	if id == "" || path != expected || a.Application.Status != "draft" {
 		return Result{409, json.RawMessage(`{"error":"APPLICATION_CHANGED","message":"Refresh the application before confirming."}`)}, nil
 	}
-	if a.Completion == nil || !a.Completion.Complete || len(a.Completion.MissingProfile) > 0 || len(a.Completion.MissingDocuments) > 0 {
+	if a.Completion == nil || !a.Completion.Complete || a.Completion.MissingProfile == nil || a.Completion.MissingDocuments == nil || len(a.Completion.MissingProfile) > 0 || len(a.Completion.MissingDocuments) > 0 {
 		return Result{422, json.RawMessage(`{"error":"APPLICATION_INCOMPLETE","message":"Complete the LMS requirements before submitting."}`)}, nil
 	}
 	return Result{}, nil

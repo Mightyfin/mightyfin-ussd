@@ -18,7 +18,11 @@ Exactly four form fields (all required, text may be empty):
   serviceCode Actual assigned dialling code; digits, * and #; at most 32 chars.
   text        Cumulative input separated by *, initially empty; at most 128 chars.
               Send one new selection each callback, e.g. empty -> 1 -> 1*9 -> 1*9*0.
+              Each selection is one ASCII digit. Whitespace, Unicode digits,
+              control characters and empty intermediate selections are rejected.
 No query parameters, JSON bodies, duplicate fields or extra fields are accepted.
+Authorization, Content-Type and customer-token headers must not be duplicated.
+Compressed bodies and non-UTF-8 charset declarations are not supported.
 The example code *123# is illustrative and is NOT an assigned Mighty Finance code.
 
 Example initial request (replace key and service code):
@@ -38,7 +42,8 @@ HTTP 200 response, Content-Type text/plain; charset=utf-8:
 
 CON means continue the session. END means terminate it. Do not display these
 prefixes as menu content if your gateway uses them as control markers. Every
-menu response fits our 160-character budget including prefix/navigation; verify
+menu response fits our 160-GSM-unit budget including prefix/navigation (extension
+characters count twice). Invalid control/non-GSM characters are not displayed; verify
 that this matches Hobbiton's encoding and network limits.
 
 Menu:
@@ -70,6 +75,8 @@ Sessions, retries and timing:
   session; changing them returns HTTP 409. Session IDs must be unique per dial.
 - Retry with exactly the same session and full text to replay the cached response.
   Do not retry using a new session ID for the same dial attempt.
+- After END, the same END response may be retried, but earlier CON screens cannot
+  be replayed to reopen the session; those requests return 409.
 - Only one new selection per request. Skipping intermediate callbacks or branching
   from an earlier menu path returns 409. Fresh refresh input triggers a fresh read.
 - Identical retries replay the prior screen during the session lifetime. These are
@@ -78,6 +85,8 @@ Sessions, retries and timing:
 - Callback processing, including waiting behind another session request, has a
   4-second deadline. Cancelled queued callbacks return 503 and do not update the
   session. Expiry is checked again after acquiring the session guard.
+  Cancellation/timeout during an upstream read returns 503 without consuming the
+  selection or caching a terminal response; retry the same cumulative input.
   Propose an operator timeout of at least
   8 seconds, subject to the operator's actual network budget.
 - No request bodies, numbers, customer tokens or operator keys are logged by this

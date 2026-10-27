@@ -1,0 +1,37 @@
+USSD edge-case hardening — 27 October 2026
+
+Fixed and regression-tested:
+- Closed sessions previously replayed older CON responses. Only cached END
+  responses may now replay once the session has ended.
+- Cancellation during upstream reads previously consumed the selection and could
+  permanently cache an END failure. It now returns 503 without advancing state.
+- Duplicate auth/content-type/customer-token headers are rejected. Unsupported
+  charset declarations and compressed request bodies are rejected explicitly.
+- Menu input rejects whitespace, controls, Unicode digits, double/trailing
+  separators and multi-digit selections. Current menus only offer single digits.
+- Customer tokens reject non-printable/non-ASCII input before any upstream call.
+- Unexpected control/non-GSM characters from upstream screens are not rendered.
+- Catalogue size accounts for GSM extension characters occupying two units;
+  otherwise apparently short names could exceed the phone screen budget.
+- LMS completion arrays must exist and be non-null before a draft is considered
+  ready or submission can proceed. Missing requirements no longer imply none.
+- Balance parsing only accepts bounded nonnegative decimal values (up to 18
+  integer digits and 8 fractional digits). Fractions, hexadecimal, exponent
+  notation, whitespace, signs and oversized numbers result in account review.
+  This avoids expensive arbitrary-exponent parsing as well as misleading states.
+
+Validation:
+Normal Go tests, race tests, and go vet passed. New regression tests cover the
+conditions above. Two bounded fuzz runs passed without crashes or invariant
+failures: 8,518 malformed callback executions and 26,651 catalogue executions.
+These runs are useful coverage, not proof that all possible inputs are correct.
+
+Public deployment verification is recorded in:
+  /home/mightyfin/reports/ussd-edge-cases-20261027/public-results.json
+It includes the previous 48 checks plus malformed input/charset and closed-session
+replay checks. Only the gateway and private adapter were updated. Admin LMS core,
+customer records, loans, identity-provider sessions and payments were not changed.
+
+Remaining launch gaps are unchanged: operator handset/contract acceptance,
+phone-to-customer authentication, and the application/KYC/offer/payment journey.
+The service remains a read-only operator pilot, not a complete lending channel.

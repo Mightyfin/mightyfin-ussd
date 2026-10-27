@@ -21,6 +21,7 @@ import (
 var sessionID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
 var phoneNumber = regexp.MustCompile(`^\+?260[79][0-9]{8}$`)
 var serviceCode = regexp.MustCompile(`^[0-9*#]{1,32}$`)
+var menuInput = regexp.MustCompile(`^(?:[0-9](?:\*[0-9])*)?$`)
 
 type Reader interface {
 	Read(context.Context, string, string) ([]byte, error)
@@ -65,12 +66,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		output(w, 405, "END Use POST.")
 		return
 	}
-	if len(s.Key) < 32 || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.Key)) != 1 {
+	if len(r.Header.Values("Authorization")) != 1 || len(s.Key) < 32 || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.Key)) != 1 {
 		output(w, 401, "END Operator authentication required.")
 		return
 	}
-	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || media != "application/x-www-form-urlencoded" {
+	media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if len(r.Header.Values("Content-Type")) != 1 || err != nil || media != "application/x-www-form-urlencoded" || (params["charset"] != "" && !strings.EqualFold(params["charset"], "utf-8")) || r.Header.Get("Content-Encoding") != "" {
 		output(w, 415, "END Use form-encoded requests.")
 		return
 	}
@@ -96,7 +97,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	id, phone, code, text := form.Get("sessionId"), form.Get("phoneNumber"), form.Get("serviceCode"), form.Get("text")
 	token := r.Header.Get("X-LMS-Customer-Token")
-	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || !serviceCode.MatchString(code) || len(text) > 128 || len(token) > 4096 || strings.ContainsAny(token, " \t\r\n") {
+	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || !serviceCode.MatchString(code) || len(text) > 128 || !menuInput.MatchString(text) || len(token) > 4096 || !printableToken(token) || len(r.Header.Values("X-LMS-Customer-Token")) > 1 {
 		output(w, 400, "END Invalid callback fields.")
 		return
 	}
@@ -146,6 +147,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cached, ok := current.responses[text]; ok {
+		if current.ended && strings.HasPrefix(cached, "CON ") {
+			output(w, 409, "END Session ended. Please dial again.")
+			return
+		}
 		output(w, 200, cached)
 		return
 	}
@@ -163,6 +168,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := s.render(ctx, text, token)
+	if ctx.Err() != nil {
+		// A timed-out or disconnected read must not consume the selection. The
+		// operator can retry the same input after the upstream recovers.
+		output(w, 503, "END Service unavailable. Please try again.")
+		return
+	}
 	current.last = text
 	current.ended = strings.HasPrefix(response, "END ")
 	current.responses[text] = response
@@ -223,7 +234,7 @@ func (s *Server) render(ctx context.Context, text, token string) string {
 		message := "CON Loan products"
 		for i, name := range names {
 			line := "\n- " + name
-			if len(message)+len(line) > 98 {
+			if phoneUnits(message)+phoneUnits(line) > 98 {
 				message += "\nMore via your officer"
 				break
 			}
@@ -247,13 +258,43 @@ func (s *Server) render(ctx context.Context, text, token string) string {
 		var screen struct {
 			Text string `json:"text"`
 		}
-		if json.Unmarshal(data, &screen) != nil || screen.Text == "" || len(screen.Text) > 156 {
+		if json.Unmarshal(data, &screen) != nil || screen.Text == "" || phoneUnits(screen.Text) > 156 || !safeScreen(screen.Text) {
 			return "END Application status is unavailable. Please try again later."
 		}
 		return "CON " + screen.Text
 	default:
 		return "END Invalid selection. Please dial again."
 	}
+}
+
+func printableToken(token string) bool {
+	for _, c := range token {
+		if c < 33 || c > 126 {
+			return false
+		}
+	}
+	return true
+}
+
+func safeScreen(text string) bool {
+	for _, c := range text {
+		if c != '\n' && (c < 32 || c > 126 || c == '`') {
+			return false
+		}
+	}
+	return true
+}
+
+// GSM extension-table characters occupy two septets even though they are ASCII.
+func phoneUnits(text string) int {
+	n := 0
+	for _, c := range text {
+		n++
+		if strings.ContainsRune("^{}\\[~]|", c) {
+			n++
+		}
+	}
+	return n
 }
 
 func productNames(data []byte) ([]string, error) {
@@ -275,7 +316,7 @@ func productNames(data []byte) ([]string, error) {
 			for _, product := range category.Products {
 				var b strings.Builder
 				for _, c := range product.Name {
-					if c >= 32 && c <= 126 {
+					if c >= 32 && c <= 126 && c != '`' {
 						b.WriteRune(c)
 					}
 				}
