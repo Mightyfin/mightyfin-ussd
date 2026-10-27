@@ -146,6 +146,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		output(w, 409, "END Session identity changed. Please dial again.")
 		return
 	}
+	// A supplied bearer token must belong to this subscriber. Revalidate on
+	// status retries too; a cached screen must not bypass token revocation.
+	if !current.ended && stateFor(text) == "status" && token != "" {
+		if !s.customerMatches(ctx, token, phone) {
+			if ctx.Err() != nil {
+				output(w, 503, "END Service unavailable. Please try again.")
+				return
+			}
+			response := "END Unable to verify your application status. Please contact your loan officer."
+			current.ended = true
+			// Remove previously authenticated screens after a failed recheck.
+			current.responses = map[string]string{text: response}
+			output(w, 200, response)
+			return
+		}
+	}
 	if cached, ok := current.responses[text]; ok {
 		if current.ended && strings.HasPrefix(cached, "CON ") {
 			output(w, 409, "END Session ended. Please dial again.")
@@ -178,6 +194,30 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	current.ended = strings.HasPrefix(response, "END ")
 	current.responses[text] = response
 	output(w, 200, response)
+}
+
+func (s *Server) customerMatches(ctx context.Context, token, subscriber string) bool {
+	data, err := s.Reader.Read(ctx, "/v1/me", token)
+	if err != nil {
+		return false
+	}
+	var profile struct {
+		Data struct {
+			ID    string `json:"id"`
+			Phone string `json:"phone"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(data, &profile) != nil || !strings.HasPrefix(profile.Data.ID, "user-") {
+		return false
+	}
+	phone := strings.TrimPrefix(strings.TrimSpace(profile.Data.Phone), "+")
+	if len(phone) == 10 && phone[0] == '0' {
+		phone = "260" + phone[1:]
+	}
+	if len(phone) == 9 {
+		phone = "260" + phone
+	}
+	return phoneNumber.MatchString(phone) && phone == strings.TrimPrefix(subscriber, "+")
 }
 
 func stateFor(text string) string {
@@ -333,14 +373,14 @@ func productNames(data []byte) ([]string, error) {
 	return names, nil
 }
 
-// BridgeReader only permits the two read-only resources used by this pilot.
+// BridgeReader only permits the read-only resources used by this pilot.
 type BridgeReader struct {
 	Key  string
 	HTTP *http.Client
 }
 
 func (b *BridgeReader) Read(ctx context.Context, path, token string) ([]byte, error) {
-	if path != "/v1/products" && path != "/v1/journey/screen" {
+	if path != "/v1/products" && path != "/v1/journey/screen" && path != "/v1/me" {
 		return nil, fmt.Errorf("unsupported resource")
 	}
 	req, err := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:28091"+path, nil)

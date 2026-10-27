@@ -27,6 +27,9 @@ func (f *fakeReader) Read(_ context.Context, path, token string) ([]byte, error)
 	if path == "/v1/products" {
 		return []byte(`{"data":[{"categories":[{"products":[{"name":"Salary loan"},{"name":"Business loan"}]}]}]}`), nil
 	}
+	if path == "/v1/me" && token == "valid-customer-token" {
+		return []byte(`{"data":{"id":"user-1","phone":"260970000001"}}`), nil
+	}
 	if path == "/v1/journey/screen" && token == "valid-customer-token" {
 		return []byte(`{"text":"Mighty Finance\nYour application is under review.\n9 Refresh\n0 Exit"}`), nil
 	}
@@ -95,7 +98,7 @@ func TestVerifiedStatusRefreshAndFailure(t *testing.T) {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
-	if f.calls.Load() != 2 {
+	if f.calls.Load() != 4 {
 		t.Fatal("refresh failed")
 	}
 	f.fail = true

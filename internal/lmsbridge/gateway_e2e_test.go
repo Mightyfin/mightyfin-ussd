@@ -67,7 +67,7 @@ func TestGatewayAdapterHTTPJourney(t *testing.T) {
 					if token == "Bearer bob" {
 						id = 2
 					}
-					fmt.Fprintf(w, `{"data":{"id":"user-%d"}}`, id)
+					fmt.Fprintf(w, `{"data":{"id":"user-%d","phone":"260970000001"}}`, id)
 				case "/api/v1/loan-applications/current":
 					if token == "Bearer bob" {
 						fmt.Fprint(w, `{"application":{"id":55,"status":"rejected"}}`)
@@ -127,7 +127,11 @@ func TestGatewayAdapterHTTPJourney(t *testing.T) {
 				t.Fatal(first)
 			}
 			count := reads.Load()
-			if retry := send("alice-session", "2", "alice"); retry != first || reads.Load() != count {
+			expectedReads := count
+			if strings.HasPrefix(first, "CON ") {
+				expectedReads++
+			}
+			if retry := send("alice-session", "2", "alice"); retry != first || reads.Load() != expectedReads {
 				t.Fatal("retry not replayed")
 			}
 			send("bob-session", "", "bob")

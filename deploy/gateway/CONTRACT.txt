@@ -61,12 +61,17 @@ access to a customer's account. For a controlled authenticated status test, supp
 X-LMS-Customer-Token: <valid existing LMS customer token> on EVERY callback,
 including the initial one. LMS validates its audience, expiration and ownership.
 Never put this token in text, a phone-number field, a URL, a screenshot or email.
-A phone number alone is never used to find or impersonate an LMS account. For real
-phone-only customers, secure account linking/authentication still needs integration.
-The supplied token is authoritative for identity; subscriber-to-account binding is
-not asserted by this pilot. Do not enable customer status in a public operator launch
-until that binding is implemented and tested. No customer token is included in the
-operator integration pack. Use a new session if authentication context changes.
+A phone number alone is never used to impersonate an LMS account. Before reading
+or replaying a customer status screen, the gateway validates the customer token
+through /v1/me and compares its account phone with the callback subscriber number.
+International (+260/260), local 0-prefixed and nine-digit account phone formats are
+normalized; missing/mismatched phones end access without reading account status.
+A failed authentication recheck removes earlier customer screens from that session.
+This comparison is not proof of phone possession: Hobbiton's subscriber-number
+provenance and callback authentication still require operator acceptance testing.
+No customer token is included in the operator pack. Use a new session if the
+authentication context changes. PIN-free phone/OTP sign-in is planned, not enabled.
+NRC is an identification/matching field only, never an authentication credential.
 
 Sessions, retries and timing:
 - Five-minute lifetime from first request; up to 2,000 sessions and 32 responses
@@ -79,8 +84,9 @@ Sessions, retries and timing:
   be replayed to reopen the session; those requests return 409.
 - Only one new selection per request. Skipping intermediate callbacks or branching
   from an earlier menu path returns 409. Fresh refresh input triggers a fresh read.
-- Identical retries replay the prior screen during the session lifetime. These are
-  read-only snapshots, not current authorization for any financial action.
+- Identical status retries first recheck the token and account phone, then replay
+  the prior screen during the session lifetime. These are read-only snapshots,
+  not authorization for any financial action. Ended sessions only replay END.
 - Missing/expired sessions with nonempty text end with a redial message.
 - Callback processing, including waiting behind another session request, has a
   4-second deadline. Cancelled queued callbacks return 503 and do not update the

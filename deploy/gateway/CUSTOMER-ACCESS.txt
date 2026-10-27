@@ -1,0 +1,44 @@
+Customer access decision — 27 October 2026
+
+The user requested PIN/password-free USSD. Do not add PIN or password entry to
+the callback menus. NRC or phone matching alone is not proof of customer identity.
+
+Implemented now:
+- Existing authenticated customer tokens must match the callback subscriber's
+  account phone through LMS /users/profile (private adapter /v1/me).
+- Fresh status reads and cached status retries revalidate the account/token.
+- Missing, mismatched or revoked credentials end status access and clear prior
+  customer screens from the session. Ordinary product browsing remains public
+  within the operator-authenticated callback.
+- Normalized comparison accepts +260, 260, local 0-prefix and nine-digit numbers.
+  It does not merge accounts, change contact records or mint authentication tokens.
+
+PIN-free sign-in design (not enabled):
+1. Obtain the subscriber number from the authenticated operator callback, not from
+   customer-typed menu text. Confirm the operator actually supplies the caller MSISDN.
+2. Request an SMS OTP using LMS /auth/request-otp, scoped to that number and session.
+3. Verify using LMS /auth/verify-otp, retaining the resulting credential server-side
+   for the session and rechecking that its account phone matches the subscriber.
+4. Use NRC only for any separately designed account-recovery/registration process;
+   never allow NRC alone to reveal balances, status or authorize financial actions.
+
+Inspection of deployed LMS found:
+- /auth/login requires a four-digit PIN then sends an OTP; it will not be used for
+  the requested PIN-free flow.
+- /auth/request-otp accepts a phone and sends an OTP without requesting a PIN.
+- /auth/verify-otp returns access/refresh credentials and also updates customer
+  state/profile. It is a mutation, not a read-only test endpoint.
+- The verification helper increments failed-attempt counters but does not itself
+  enforce a maximum. Before exposing this flow, enforce bounded attempts and
+  resend limits at a durable authentication boundary, with duplicate suppression.
+
+Required before enabling OTP entry:
+- Durable, session/phone-bound challenge state with attempt limits and safe retry
+  handling for uncertain sends/verifications; no blanket login bypass.
+- Redact/avoid retaining cumulative OTP input. The current text-path cache is for
+  single-digit menus and is unsuitable for credentials without redesign.
+- Operator agreement on numeric OTP input, session deadline and callback trust.
+- Isolated end-to-end OTP tests, plus a designated consented test number for real
+  delivery verification. No live OTP or customer token was created in this change.
+
+Current production remains read-only-pilot with customer_onboarding_ready=false.
