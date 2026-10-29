@@ -114,7 +114,7 @@ func TestAuthenticationAndStrictContract(t *testing.T) {
 		status                           int
 	}{
 		{"POST", "/ussd", "application/x-www-form-urlencoded", "", "", 401},
-		{"GET", "/ussd", "", "", testKey, 405},
+		{"GET", "/ussd", "", "", testKey, 400},
 		{"POST", "/ussd", "application/json", "{}", testKey, 415},
 		{"POST", "/ussd?text=1", "application/x-www-form-urlencoded", "", testKey, 400},
 		{"POST", "/ussd", "application/x-www-form-urlencoded", "sessionId=a&sessionId=b&phoneNumber=260970000001&serviceCode=123&text=", testKey, 400},

@@ -66,7 +66,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			ready = p.Ready(ctx)
 			cancel()
 		}
-		b, _ := json.Marshal(map[string]any{"status": "ok", "service": "ussd-gateway", "callback_ready": true, "contract": "mightyfin-v1-proposed", "mode": mode, "customer_onboarding_ready": false, "payment_menu_enabled": s.Payments != nil, "financial_actions_enabled": ready})
+		b, _ := json.Marshal(map[string]any{"status": "ok", "service": "ussd-gateway", "callback_ready": true, "contract": "mightyfin-v1-proposed", "hobbiton_get_ready": true, "hobbiton_get_mode": "public-browsing-pilot", "mode": mode, "customer_onboarding_ready": false, "payment_menu_enabled": s.Payments != nil, "financial_actions_enabled": ready})
 		output(w, 200, string(b))
 		return
 	}
@@ -74,9 +74,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		output(w, 404, "END Not found.")
 		return
 	}
+	if r.Method == "GET" {
+		s.serveHobbiton(w, r)
+		return
+	}
 	if r.Method != "POST" {
-		w.Header().Set("Allow", "POST")
-		output(w, 405, "END Use POST.")
+		w.Header().Set("Allow", "GET, POST")
+		output(w, 405, "END Use GET or POST.")
 		return
 	}
 	if len(r.Header.Values("Authorization")) != 1 || len(s.Key) < 32 || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.Key)) != 1 {

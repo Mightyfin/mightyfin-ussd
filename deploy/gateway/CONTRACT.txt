@@ -1,3 +1,42 @@
+Hobbiton GET transport update — 29 October 2026
+
+Callback: https://ussd.mightyfinance.co.zm/ussd
+GET query fields (case-sensitive, exactly one each):
+  msisdn       260762167007, +260762167007 (encode + as %2B), or 0762167007
+  SESSION_ID   Nonempty unique ID per dial, 1–80 letters/digits/underscore/hyphen
+  input        Empty or a single ASCII menu digit for this connection pilot
+  requestType  Non-negative decimal integer (up to 10 digits)
+Authorization: Bearer <existing operator pilot key> remains required.
+User-Agent: MightyFinance-USSD-Pilot/1.0 is tested against Cloudflare.
+Responses remain plain text CON/END; Hobbiton still needs to confirm this format.
+
+The supplied example is accepted with the authentication header and returns the
+initial menu. A new session always opens the main menu, even if input=1.
+The GET pilot allows public loan-product browsing, Back and Exit only. It never
+reads customer accounts or initiates payments. Existing POST behavior is unchanged.
+GET and POST session state is isolated. Local/international caller forms normalize
+to the same identity; a changed caller on an existing session is rejected.
+
+Provisional session behavior: input is treated as the latest answer. An immediately
+identical requestType/input pair replays the previous response. Consequently an
+initial input=1/requestType=1 followed by an identical pair cannot be distinguished
+from a retry. Hobbiton must clarify initial/continuation/end requestType values,
+whether input is incremental or cumulative, and retry rules before full activation.
+No numerical requestType meaning has been invented. An expired ID opens a new
+browsing session; account/payment processing is not allowed on this provisional path.
+SESSION_ID, input and requestType must be present for session navigation even though
+Hobbiton's email only explicitly marked msisdn as required.
+
+Remaining operator confirmations: authentication header support or another trusted
+callback mechanism; requestType/input semantics; response framing; assigned code,
+networks, timeouts, retry rules, session lifetime, screen limits and wallet prompt.
+No secrets may be put in query parameters. Application/Caddy access logging remains
+disabled; operator and Cloudflare query logging/retention must be considered since
+GET carries subscriber numbers in URLs.
+
+The following is the retained POST contract, not the Hobbiton GET specification.
+------------------------------------------------------------------------
+
 Mighty Finance USSD callback — proposed contract v1
 
 This contract is implemented for a payments pilot. It is our proposed interface,
