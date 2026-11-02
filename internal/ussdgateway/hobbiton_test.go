@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func hobby(s *Server, id, phone, input, kind string) *httptest.ResponseRecorder {
@@ -89,5 +90,74 @@ func TestHobbitonMalformedAndAuth(t *testing.T) {
 		if w.Code != tt.status {
 			t.Fatal(tt.path, w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestHobbitonSourceAllowlist(t *testing.T) {
+	for _, tt := range []struct {
+		name, remote, ip, xff, worker string
+		duplicate, enabled            bool
+		want                          int
+	}{
+		{"allowed tunnel", "127.0.0.1:1234", "41.175.8.68", "", "", false, true, 200},
+		{"allowed ipv6 loopback", "[::1]:1234", "41.175.8.68", "", "", false, true, 200},
+		{"wrong client", "127.0.0.1:1234", "41.175.8.69", "", "", false, true, 401},
+		{"forged forwarded for", "127.0.0.1:1234", "203.0.113.1", "41.175.8.68", "", false, true, 401},
+		{"missing cf", "127.0.0.1:1234", "", "41.175.8.68", "", false, true, 401},
+		{"untrusted peer", "203.0.113.1:1234", "41.175.8.68", "", "", false, true, 401},
+		{"direct operator not tunnel", "41.175.8.68:1234", "41.175.8.68", "", "", false, true, 401},
+		{"comma list", "127.0.0.1:1234", "41.175.8.68, 203.0.113.1", "", "", false, true, 401},
+		{"duplicate cf", "127.0.0.1:1234", "41.175.8.68", "", "", true, true, 401},
+		{"worker rejected", "127.0.0.1:1234", "41.175.8.68", "", "example.com", false, true, 401},
+		{"disabled by default", "127.0.0.1:1234", "41.175.8.68", "", "", false, false, 401},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{Key: testKey, Reader: &fakeReader{}}
+			if tt.enabled {
+				s.HobbitonIP = "41.175.8.68"
+			}
+			r := httptest.NewRequest("GET", "/ussd?msisdn=0762167007&SESSION_ID=ip-test&input=1&requestType=1", nil)
+			r.RemoteAddr = tt.remote
+			if tt.ip != "" {
+				r.Header.Set("CF-Connecting-IP", tt.ip)
+			}
+			if tt.duplicate {
+				r.Header.Add("CF-Connecting-IP", tt.ip)
+			}
+			if tt.xff != "" {
+				r.Header.Set("X-Forwarded-For", tt.xff)
+			}
+			if tt.worker != "" {
+				r.Header.Set("CF-Worker", tt.worker)
+			}
+			w := httptest.NewRecorder()
+			s.ServeHTTP(w, r)
+			if w.Code != tt.want {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestHobbitonRequestTypes(t *testing.T) {
+	s := &Server{Key: testKey, Reader: &fakeReader{}}
+	if w := hobby(s, "missing", "0762167007", "1", "2"); !strings.Contains(w.Body.String(), "Session expired") {
+		t.Fatal(w.Body.String())
+	}
+	for _, kind := range []string{"0", "3", "01", "-1"} {
+		if w := hobby(s, "invalid", "0762167007", "1", kind); w.Code != 400 {
+			t.Fatal(kind, w.Code)
+		}
+	}
+	hobby(s, "sequence", "0762167007", "1", "1")
+	if w := hobby(s, "sequence", "0762167007", "1", "2"); !strings.Contains(w.Body.String(), "CON Loan products") {
+		t.Fatal(w.Body.String())
+	}
+	if w := hobby(s, "sequence", "0762167007", "1", "1"); w.Code != 409 {
+		t.Fatal(w.Code)
+	}
+	s.sessions["hobbiton:sequence"].expires = time.Now().Add(-time.Second)
+	if w := hobby(s, "sequence", "0762167007", "9", "2"); !strings.Contains(w.Body.String(), "Session expired") {
+		t.Fatal(w.Body.String())
 	}
 }

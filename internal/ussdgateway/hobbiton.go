@@ -4,20 +4,34 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 )
 
-var hobbitonType = regexp.MustCompile(`^[0-9]{1,10}$`)
+// hobbitonSourceAllowed trusts only the configured loopback tunnel ingress.
+// The Caddy and app listeners MUST remain loopback-only. Cloudflare supplies
+// CF-Connecting-IP; X-Forwarded-For and caller-supplied alternatives are ignored.
+// Local processes and administrators of this Cloudflare zone are trusted.
+func (s *Server) hobbitonSourceAllowed(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	peer, peerErr := netip.ParseAddr(host)
+	allowed, allowedErr := netip.ParseAddr(s.HobbitonIP)
+	if err != nil || peerErr != nil || !peer.IsLoopback() || allowedErr != nil || len(r.Header.Values("CF-Connecting-IP")) != 1 || len(r.Header.Values("CF-Worker")) != 0 {
+		return false
+	}
+	client, err := netip.ParseAddr(r.Header.Get("CF-Connecting-IP"))
+	return err == nil && client == allowed
+}
 
-// Hobbiton's query transport is confirmed; its requestType meanings and retry
-// protocol are not. This isolated pilot supports public browsing only. No
-// customer reads or payment calls can be made through this handler.
+// Hobbiton's GET flow is an isolated public-browsing pilot. No customer reads
+// or payment calls are made through this handler.
 func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
-	if len(r.Header.Values("Authorization")) != 1 || len(s.Key) < 32 || subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.Key)) != 1 {
+	keyOK := len(r.Header.Values("Authorization")) == 1 && len(s.Key) >= 32 && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.Key)) == 1
+	if !keyOK && !s.hobbitonSourceAllowed(r) {
 		output(w, 401, "END Operator authentication required.")
 		return
 	}
@@ -45,7 +59,7 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	if len(phone) == 10 && phone[0] == '0' {
 		phone = "260" + phone[1:]
 	}
-	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || !hobbitonType.MatchString(kind) || len(input) > 1 || (input != "" && (input[0] < '0' || input[0] > '9')) {
+	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || (kind != "1" && kind != "2") || len(input) > 1 || (input != "" && (input[0] < '0' || input[0] > '9')) {
 		output(w, 400, "END Invalid callback fields.")
 		return
 	}
@@ -66,6 +80,11 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	}
 	current := s.sessions[id]
 	if current == nil {
+		if kind != "1" {
+			s.mu.Unlock()
+			output(w, 200, "END Session expired or unavailable. Please dial again.")
+			return
+		}
 		if len(s.sessions) >= 2000 {
 			s.mu.Unlock()
 			output(w, 503, "END Service busy. Please dial again.")
@@ -101,6 +120,10 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		output(w, 200, cached)
 		return
 	}
+	if kind == "1" && current.last != "" {
+		output(w, 409, "END Session already started. Please dial again.")
+		return
+	}
 	if current.ended {
 		output(w, 409, "END Session ended. Please dial again.")
 		return
@@ -108,8 +131,7 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	var response string
 	home := "CON Mighty Finance\n1 Loan products\n0 Exit"
 	if current.last == "" {
-		// Initial input may contain the entry-code selection. No requestType meaning
-		// is assumed; a previously unseen session always receives the initial menu.
+		// requestType=1 opens the menu; initial input may contain the entry selection.
 		response = home
 	} else if input == "0" {
 		response = "END Thank you for choosing Mighty Finance."

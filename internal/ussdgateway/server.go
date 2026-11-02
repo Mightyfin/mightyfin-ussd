@@ -38,11 +38,13 @@ type session struct {
 }
 
 type Server struct {
-	Key      string
-	Reader   Reader
-	Payments Payments
-	mu       sync.Mutex
-	sessions map[string]*session
+	Key string
+	// HobbitonIP is trusted only through the loopback Cloudflare Tunnel ingress.
+	HobbitonIP string
+	Reader     Reader
+	Payments   Payments
+	mu         sync.Mutex
+	sessions   map[string]*session
 }
 
 func output(w http.ResponseWriter, status int, text string) {

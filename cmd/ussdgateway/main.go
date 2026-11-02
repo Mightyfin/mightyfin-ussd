@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -44,6 +45,13 @@ func run() error {
 	}
 	client := &http.Client{Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	handler := &ussdgateway.Server{Key: operatorKey, Reader: &ussdgateway.BridgeReader{Key: bridgeKey, HTTP: client}}
+	if ip := os.Getenv("USSD_HOBBITON_ALLOWED_IP"); ip != "" {
+		parsed, e := netip.ParseAddr(ip)
+		if e != nil || !parsed.Is4() {
+			return errors.New("invalid Hobbiton gateway IPv4 address")
+		}
+		handler.HobbitonIP = parsed.String()
+	}
 	if os.Getenv("USSD_PAYMENTS_ENABLED") == "true" {
 		paymentKey, e := keyFile(os.Getenv("USSD_PAYMENTS_KEY_FILE"))
 		if e != nil {
