@@ -1,10 +1,11 @@
-Hobbiton GET transport update — 2 November 2026
+Hobbiton GET transport update — 6 November 2026
 
 Callback: https://ussd.mightyfinance.co.zm/ussd
-GET query fields (case-sensitive, exactly one each):
+GET query fields (case-insensitive, exactly one each):
   msisdn       260762167007, +260762167007 (encode + as %2B), or 0762167007
   SESSION_ID   Nonempty unique ID per dial, 1–80 letters/digits/underscore/hyphen
-  input        Latest answer only; empty or one ASCII menu digit in this pilot
+  input        Initial dial: empty or up to 32 ASCII digits (e.g. INPUT=29).
+               Subsequent requests: latest answer only, empty or one ASCII digit.
   requestType  1 = initial dial; 2 = subsequent request
 
 Hobbiton source IP: 41.175.8.68. No Authorization header is required for requests
@@ -53,7 +54,10 @@ Cache-Control: no-store
 
 END Thank you for choosing Mighty Finance.
 
-Hobbiton must confirm response framing compatibility, test dialling code, networks,
+Hobbiton confirmed plain-text CON/END response compatibility on 6 November 2026.
+Accepted examples include INPUT, MSISDN, RequestType and SESSION_ID. Duplicate
+fields, including aliases differing only in case, are rejected.
+Hobbiton must still confirm test dialling code, networks,
 timeouts, retry ordering/rules, session lifetime, screen limits and wallet prompt.
 A local simulated ingress test is not a test from Hobbiton's actual source IP.
 

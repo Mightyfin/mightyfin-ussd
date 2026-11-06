@@ -43,23 +43,44 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		output(w, 400, "END Invalid callback fields.")
 		return
 	}
-	q, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil || len(q) != 4 {
+	raw, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || len(raw) != 4 {
 		output(w, 400, "END Invalid callback fields.")
 		return
 	}
-	for _, name := range []string{"msisdn", "SESSION_ID", "input", "requestType"} {
+	// Normalize field names while rejecting ambiguous aliases such as input+INPUT.
+	q := make(url.Values)
+	for name, values := range raw {
+		key := strings.ToLower(name)
+		if _, exists := q[key]; exists {
+			output(w, 400, "END Invalid callback fields.")
+			return
+		}
+		q[key] = values
+	}
+	for _, name := range []string{"msisdn", "session_id", "input", "requesttype"} {
 		if len(q[name]) != 1 {
 			output(w, 400, "END Invalid callback fields.")
 			return
 		}
 	}
-	id, phone, input, kind := q.Get("SESSION_ID"), q.Get("msisdn"), q.Get("input"), q.Get("requestType")
+	id, phone, input, kind := q.Get("session_id"), q.Get("msisdn"), q.Get("input"), q.Get("requesttype")
 	phone = strings.TrimPrefix(phone, "+")
 	if len(phone) == 10 && phone[0] == '0' {
 		phone = "260" + phone[1:]
 	}
-	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || (kind != "1" && kind != "2") || len(input) > 1 || (input != "" && (input[0] < '0' || input[0] > '9')) {
+	// Initial input is the gateway's entry selection (e.g. 29), not a menu answer.
+	inputLimit := 1
+	if kind == "1" {
+		inputLimit = 32
+	}
+	validInput := len(input) <= inputLimit
+	for _, c := range input {
+		if c < '0' || c > '9' {
+			validInput = false
+		}
+	}
+	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || (kind != "1" && kind != "2") || !validInput {
 		output(w, 400, "END Invalid callback fields.")
 		return
 	}

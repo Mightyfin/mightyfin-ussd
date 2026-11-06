@@ -71,7 +71,7 @@ func TestHobbitonMalformedAndAuth(t *testing.T) {
 		{base, "", 401},
 		{base, testKey, 200},
 		{base + "&input=2", testKey, 400},
-		{strings.Replace(base, "SESSION_ID", "sessionId", 1), testKey, 400},
+		{strings.Replace(base, "SESSION_ID", "unknown", 1), testKey, 400},
 		{strings.Replace(base, "requestType=1", "requestType=-1", 1), testKey, 400},
 		{strings.Replace(base, "input=1", "input=1*9", 1), testKey, 400},
 		{strings.Replace(base, "input=1", "input=%ZZ", 1), testKey, 400},
@@ -159,5 +159,44 @@ func TestHobbitonRequestTypes(t *testing.T) {
 	s.sessions["hobbiton:sequence"].expires = time.Now().Add(-time.Second)
 	if w := hobby(s, "sequence", "0762167007", "9", "2"); !strings.Contains(w.Body.String(), "Session expired") {
 		t.Fatal(w.Body.String())
+	}
+}
+
+func TestHobbitonParameterCasingAndEntrySelection(t *testing.T) {
+	for _, tt := range []struct {
+		query    string
+		want     int
+		contains string
+	}{
+		{"INPUT=29&MSISDN=260773016722&RequestType=1&SESSION_ID=17939496960758482", 200, "CON Mighty Finance"},
+		{"iNpUt=29&mSiSdN=260773016722&rEqUeStTyPe=1&sEsSiOn_Id=mixed", 200, "CON Mighty Finance"},
+		{"input=29&msisdn=260773016722&requestType=1&SESSION_ID=lower", 200, "CON Mighty Finance"},
+		{"INPUT=29&input=1&MSISDN=260773016722&RequestType=1&SESSION_ID=duplicate", 400, "Invalid callback"},
+		{"INPUT=29&MSISDN=260773016722&RequestType=2&SESSION_ID=bad-continuation", 400, "Invalid callback"},
+		{"INPUT=" + strings.Repeat("1", 33) + "&MSISDN=260773016722&RequestType=1&SESSION_ID=long", 400, "Invalid callback"},
+		{"INPUT=2%2A9&MSISDN=260773016722&RequestType=1&SESSION_ID=invalid-entry", 400, "Invalid callback"},
+	} {
+		s := &Server{Key: testKey, Reader: &fakeReader{}, HobbitonIP: "41.175.8.68"}
+		r := httptest.NewRequest("GET", "/ussd?"+tt.query, nil)
+		r.RemoteAddr = "127.0.0.1:12000"
+		r.Header.Set("CF-Connecting-IP", "41.175.8.68")
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != tt.want || !strings.Contains(w.Body.String(), tt.contains) {
+			t.Fatal(tt.query, w.Code, w.Body.String())
+		}
+	}
+	s := &Server{Key: testKey, Reader: &fakeReader{}}
+	for _, query := range []string{
+		"INPUT=29&MSISDN=260773016722&RequestType=1&SESSION_ID=case-flow",
+		"input=1&msisdn=260773016722&requestType=2&session_id=case-flow",
+	} {
+		r := httptest.NewRequest("GET", "/ussd?"+query, nil)
+		r.Header.Set("Authorization", "Bearer "+testKey)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "CON ") {
+			t.Fatal(w.Code, w.Body.String())
+		}
 	}
 }
