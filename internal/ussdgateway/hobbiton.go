@@ -32,20 +32,20 @@ func (s *Server) hobbitonSourceAllowed(r *http.Request) bool {
 func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	keyOK := len(r.Header.Values("Authorization")) == 1 && len(s.Key) >= 32 && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+s.Key)) == 1
 	if !keyOK && !s.hobbitonSourceAllowed(r) {
-		output(w, 401, "END Operator authentication required.")
+		hobbitonOutput(w, 401, "END Operator authentication required.")
 		return
 	}
 	if len(r.URL.RawQuery) > 2048 {
-		output(w, 414, "END Request too large.")
+		hobbitonOutput(w, 414, "END Request too large.")
 		return
 	}
 	if r.ContentLength != 0 || len(r.TransferEncoding) != 0 || r.Header.Get("Content-Encoding") != "" || len(r.Header.Values("X-LMS-Customer-Token")) != 0 {
-		output(w, 400, "END Invalid callback fields.")
+		hobbitonOutput(w, 400, "END Invalid callback fields.")
 		return
 	}
 	raw, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil || len(raw) != 4 {
-		output(w, 400, "END Invalid callback fields.")
+		hobbitonOutput(w, 400, "END Invalid callback fields.")
 		return
 	}
 	// Normalize field names while rejecting ambiguous aliases such as input+INPUT.
@@ -53,14 +53,14 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	for name, values := range raw {
 		key := strings.ToLower(name)
 		if _, exists := q[key]; exists {
-			output(w, 400, "END Invalid callback fields.")
+			hobbitonOutput(w, 400, "END Invalid callback fields.")
 			return
 		}
 		q[key] = values
 	}
 	for _, name := range []string{"msisdn", "session_id", "input", "requesttype"} {
 		if len(q[name]) != 1 {
-			output(w, 400, "END Invalid callback fields.")
+			hobbitonOutput(w, 400, "END Invalid callback fields.")
 			return
 		}
 	}
@@ -81,7 +81,7 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || (kind != "1" && kind != "2") || !validInput {
-		output(w, 400, "END Invalid callback fields.")
+		hobbitonOutput(w, 400, "END Invalid callback fields.")
 		return
 	}
 	// Separate namespace prevents GET requests from reusing a POST session.
@@ -103,12 +103,12 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	if current == nil {
 		if kind != "1" {
 			s.mu.Unlock()
-			output(w, 200, "END Session expired or unavailable. Please dial again.")
+			hobbitonOutput(w, 200, "END Session expired or unavailable. Please dial again.")
 			return
 		}
 		if len(s.sessions) >= 2000 {
 			s.mu.Unlock()
-			output(w, 503, "END Service busy. Please dial again.")
+			hobbitonOutput(w, 503, "END Service busy. Please dial again.")
 			return
 		}
 		current = &session{gate: make(chan struct{}, 1), binding: binding, expires: now.Add(5 * time.Minute), responses: make(map[string]string)}
@@ -119,34 +119,34 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	case current.gate <- struct{}{}:
 		defer func() { <-current.gate }()
 	case <-ctx.Done():
-		output(w, 503, "END Service busy. Please dial again.")
+		hobbitonOutput(w, 503, "END Service busy. Please dial again.")
 		return
 	}
 	if ctx.Err() != nil {
-		output(w, 503, "END Service busy. Please dial again.")
+		hobbitonOutput(w, 503, "END Service busy. Please dial again.")
 		return
 	}
 	if time.Now().After(current.expires) {
-		output(w, 200, "END Session expired. Please dial again.")
+		hobbitonOutput(w, 200, "END Session expired. Please dial again.")
 		return
 	}
 	if current.binding != binding {
-		output(w, 409, "END Session identity changed. Please dial again.")
+		hobbitonOutput(w, 409, "END Session identity changed. Please dial again.")
 		return
 	}
 	// Only an immediately repeated callback is replayed: selecting 1 after Back
 	// must not replay an earlier product screen as an old protocol event.
 	fingerprint := kind + ":" + input
 	if cached, ok := current.responses[fingerprint]; ok {
-		output(w, 200, cached)
+		hobbitonOutput(w, 200, cached)
 		return
 	}
 	if kind == "1" && current.last != "" {
-		output(w, 409, "END Session already started. Please dial again.")
+		hobbitonOutput(w, 409, "END Session already started. Please dial again.")
 		return
 	}
 	if current.ended {
-		output(w, 409, "END Session ended. Please dial again.")
+		hobbitonOutput(w, 409, "END Session ended. Please dial again.")
 		return
 	}
 	var response string
@@ -164,7 +164,7 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		response = "END This option is unavailable during connection testing. Please dial again."
 	}
 	if ctx.Err() != nil {
-		output(w, 503, "END Service unavailable. Please try again.")
+		hobbitonOutput(w, 503, "END Service unavailable. Please try again.")
 		return
 	}
 	current.last = "home"
@@ -173,5 +173,12 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	}
 	current.ended = strings.HasPrefix(response, "END ")
 	current.responses = map[string]string{fingerprint: response}
-	output(w, 200, response)
+	hobbitonOutput(w, 200, response)
+}
+
+// Hobbiton renders the body verbatim. Keep control markers in internal session
+// state, and remove them only at this transport boundary (including retries/errors).
+func hobbitonOutput(w http.ResponseWriter, status int, text string) {
+	text = strings.TrimPrefix(strings.TrimPrefix(text, "CON "), "END ")
+	output(w, status, text)
 }

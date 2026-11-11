@@ -1,4 +1,4 @@
-Hobbiton GET transport update — 6 November 2026
+Hobbiton GET transport update — 11 November 2026
 
 Callback: https://ussd.mightyfinance.co.zm/ussd
 GET query fields (case-insensitive, exactly one each):
@@ -38,12 +38,19 @@ confirm retry ordering before enabling financial actions on this GET flow.
 The GET pilot supports public loan products, Back and Exit only. It does not read
 customer accounts or initiate payments. GET and POST session state is isolated.
 
-Full response example (prefix is part of the plain-text BODY, not a field):
+Test dialling code supplied by Hobbiton: *488*29#
+
+Hobbiton renders the body verbatim. GET bodies contain menu text only, without
+CON/END prefixes, including cached replies and errors. Internal terminal session
+state is retained. Hobbiton must confirm how their gateway closes a session after
+a terminal screen, and whether any separate control field/header is required.
+
+Full GET response example:
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
 
-CON Mighty Finance
+Mighty Finance
 1 Loan products
 0 Exit
 
@@ -52,12 +59,13 @@ HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
 
-END Thank you for choosing Mighty Finance.
+Thank you for choosing Mighty Finance.
 
-Hobbiton confirmed plain-text CON/END response compatibility on 6 November 2026.
+Hobbiton confirmed successful end-to-end callback tests and requested removal of
+the visible CON/END prefixes on 11 November 2026.
 Accepted examples include INPUT, MSISDN, RequestType and SESSION_ID. Duplicate
 fields, including aliases differing only in case, are rejected.
-Hobbiton must still confirm test dialling code, networks,
+Hobbiton must still confirm networks,
 timeouts, retry ordering/rules, session lifetime, screen limits and wallet prompt.
 A local simulated ingress test is not a test from Hobbiton's actual source IP.
 

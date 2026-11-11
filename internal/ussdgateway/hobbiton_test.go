@@ -20,17 +20,17 @@ func TestHobbitonBrowsingAndRetries(t *testing.T) {
 	f := &fakeReader{}
 	s := &Server{Key: testKey, Reader: f}
 	for _, step := range []struct{ input, kind, want string }{
-		{"1", "1", "CON Mighty Finance"},
-		{"1", "1", "CON Mighty Finance"}, // initial retry must not select a product
-		{"1", "2", "CON Loan products"},
-		{"1", "2", "CON Loan products"},
-		{"9", "2", "CON Mighty Finance"},
-		{"1", "2", "CON Loan products"},
-		{"0", "2", "END Thank you"},
-		{"0", "2", "END Thank you"},
+		{"1", "1", "Mighty Finance"},
+		{"1", "1", "Mighty Finance"}, // initial retry must not select a product
+		{"1", "2", "Loan products"},
+		{"1", "2", "Loan products"},
+		{"9", "2", "Mighty Finance"},
+		{"1", "2", "Loan products"},
+		{"0", "2", "Thank you"},
+		{"0", "2", "Thank you"},
 	} {
 		w := hobby(s, "browse", "0762167007", step.input, step.kind)
-		if w.Code != 200 || !strings.Contains(w.Body.String(), step.want) {
+		if w.Code != 200 || !strings.Contains(w.Body.String(), step.want) || strings.HasPrefix(w.Body.String(), "CON ") || strings.HasPrefix(w.Body.String(), "END ") {
 			t.Fatal(w.Code, w.Body.String(), step)
 		}
 	}
@@ -150,7 +150,7 @@ func TestHobbitonRequestTypes(t *testing.T) {
 		}
 	}
 	hobby(s, "sequence", "0762167007", "1", "1")
-	if w := hobby(s, "sequence", "0762167007", "1", "2"); !strings.Contains(w.Body.String(), "CON Loan products") {
+	if w := hobby(s, "sequence", "0762167007", "1", "2"); !strings.Contains(w.Body.String(), "Loan products") {
 		t.Fatal(w.Body.String())
 	}
 	if w := hobby(s, "sequence", "0762167007", "1", "1"); w.Code != 409 {
@@ -168,9 +168,9 @@ func TestHobbitonParameterCasingAndEntrySelection(t *testing.T) {
 		want     int
 		contains string
 	}{
-		{"INPUT=29&MSISDN=260773016722&RequestType=1&SESSION_ID=17939496960758482", 200, "CON Mighty Finance"},
-		{"iNpUt=29&mSiSdN=260773016722&rEqUeStTyPe=1&sEsSiOn_Id=mixed", 200, "CON Mighty Finance"},
-		{"input=29&msisdn=260773016722&requestType=1&SESSION_ID=lower", 200, "CON Mighty Finance"},
+		{"INPUT=29&MSISDN=260773016722&RequestType=1&SESSION_ID=17939496960758482", 200, "Mighty Finance"},
+		{"iNpUt=29&mSiSdN=260773016722&rEqUeStTyPe=1&sEsSiOn_Id=mixed", 200, "Mighty Finance"},
+		{"input=29&msisdn=260773016722&requestType=1&SESSION_ID=lower", 200, "Mighty Finance"},
 		{"INPUT=29&input=1&MSISDN=260773016722&RequestType=1&SESSION_ID=duplicate", 400, "Invalid callback"},
 		{"INPUT=29&MSISDN=260773016722&RequestType=2&SESSION_ID=bad-continuation", 400, "Invalid callback"},
 		{"INPUT=" + strings.Repeat("1", 33) + "&MSISDN=260773016722&RequestType=1&SESSION_ID=long", 400, "Invalid callback"},
@@ -195,8 +195,30 @@ func TestHobbitonParameterCasingAndEntrySelection(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+testKey)
 		w := httptest.NewRecorder()
 		s.ServeHTTP(w, r)
-		if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "CON ") {
+		if w.Code != 200 || (strings.HasPrefix(w.Body.String(), "CON ") || strings.HasPrefix(w.Body.String(), "END ")) {
 			t.Fatal(w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestHobbitonPlainBodyAndInternalTermination(t *testing.T) {
+	s := &Server{Key: testKey, Reader: &fakeReader{}}
+	if w := hobby(s, "plain", "0762167007", "29", "1"); w.Body.String() != "Mighty Finance\n1 Loan products\n0 Exit" {
+		t.Fatal(w.Body.String())
+	}
+	for i := 0; i < 2; i++ {
+		w := hobby(s, "plain", "0762167007", "0", "2")
+		if w.Body.String() != "Thank you for choosing Mighty Finance." {
+			t.Fatal(w.Body.String())
+		}
+	}
+	if !s.sessions["hobbiton:plain"].ended {
+		t.Fatal("lost internal terminal state")
+	}
+	if w := hobby(s, "plain", "0762167007", "1", "2"); w.Code != 409 || strings.HasPrefix(w.Body.String(), "END ") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	if w := callback(s, "post-still-prefixed", "", "260970000001", ""); !strings.HasPrefix(w.Body.String(), "CON ") {
+		t.Fatal(w.Body.String())
 	}
 }
