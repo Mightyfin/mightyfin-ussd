@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
@@ -84,6 +85,8 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		hobbitonOutput(w, 400, "END Invalid callback fields.")
 		return
 	}
+	// Operational metadata only: never log phone numbers, input contents, URLs or keys.
+	log.Printf("Hobbiton callback: request_type=%s input_length=%d", kind, len(input))
 	// Separate namespace prevents GET requests from reusing a POST session.
 	id = "hobbiton:" + id
 	binding := sha256.Sum256([]byte(phone))
@@ -179,6 +182,14 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 // Hobbiton renders the body verbatim. Keep control markers in internal session
 // state, and remove them only at this transport boundary (including retries/errors).
 func hobbitonOutput(w http.ResponseWriter, status int, text string) {
+	screen := "other"
+	if strings.HasPrefix(text, "CON Mighty Finance") {
+		screen = "home"
+	}
+	if strings.HasPrefix(text, "CON Loan products") {
+		screen = "products"
+	}
+	log.Printf("Hobbiton response: status=%d screen=%s terminal=%t", status, screen, strings.HasPrefix(text, "END "))
 	text = strings.TrimPrefix(strings.TrimPrefix(text, "CON "), "END ")
 	output(w, status, text)
 }
