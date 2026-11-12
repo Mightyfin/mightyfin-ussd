@@ -182,6 +182,12 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 // Hobbiton renders the body verbatim. Keep control markers in internal session
 // state, and remove them only at this transport boundary (including retries/errors).
 func hobbitonOutput(w http.ResponseWriter, status int, text string) {
+	// Hobbiton controls the handset session through this header, not body prefixes.
+	flow := "FB"
+	if status == http.StatusOK && strings.HasPrefix(text, "CON ") {
+		flow = "FC"
+	}
+	w.Header().Set("FreeFlow", flow)
 	screen := "other"
 	if strings.HasPrefix(text, "CON Mighty Finance") {
 		screen = "home"

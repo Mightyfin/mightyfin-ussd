@@ -1,4 +1,4 @@
-Hobbiton GET transport update — 11 November 2026
+Hobbiton GET transport update — 12 November 2026
 
 Callback: https://ussd.mightyfinance.co.zm/ussd
 GET query fields (case-insensitive, exactly one each):
@@ -27,7 +27,7 @@ query logging and retention because subscriber numbers now appear in query URLs.
 
 Sessions: only type 1 creates a session. Initial input may contain the entry-code
 selection and does not select a menu option. Type 2 advances the stored session.
-Missing/expired type 2 sessions receive END with a redial message. Mobile number
+Missing/expired type 2 sessions receive a redial message and FreeFlow: FB. Mobile number
 is bound to the session; local/international formats normalize to one identity.
 An immediately identical requestType/input pair replays its response. A late type 1
 after navigation returns 409. State is memory-only, expires after five minutes,
@@ -42,13 +42,18 @@ Test dialling code supplied by Hobbiton: *488*29#
 
 Hobbiton renders the body verbatim. GET bodies contain menu text only, without
 CON/END prefixes, including cached replies and errors. Internal terminal session
-state is retained. Hobbiton must confirm how their gateway closes a session after
-a terminal screen, and whether any separate control field/header is required.
+state is retained. Per Hobbiton's 12 November specification, responses include:
+  FreeFlow: FC  continue the session and accept the next answer
+  FreeFlow: FB  close the session
+Menus and cached menu replies use FC. Exit, expired sessions, terminal messages,
+and errors use FB. The header is set before writing the HTTP response. The retained
+POST contract below uses its existing CON/END format.
 
 Full GET response example:
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
+FreeFlow: FC
 
 Mighty Finance
 1 Loan products
@@ -58,6 +63,7 @@ Termination response:
 HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
+FreeFlow: FB
 
 Thank you for choosing Mighty Finance.
 

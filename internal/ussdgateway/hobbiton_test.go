@@ -222,3 +222,29 @@ func TestHobbitonPlainBodyAndInternalTermination(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+
+func TestHobbitonFreeFlowLifecycle(t *testing.T) {
+	s := &Server{Key: testKey, Reader: &fakeReader{}}
+	for _, step := range []struct{ input, kind, flow string }{
+		{"29", "1", "FC"}, {"29", "1", "FC"},
+		{"1", "2", "FC"}, {"1", "2", "FC"}, {"9", "2", "FC"},
+		{"0", "2", "FB"}, {"0", "2", "FB"}, {"1", "2", "FB"},
+	} {
+		w := hobby(s, "freeflow", "0762167007", step.input, step.kind)
+		if w.Result().Header.Get("FreeFlow") != step.flow || strings.HasPrefix(w.Body.String(), "CON ") || strings.HasPrefix(w.Body.String(), "END ") {
+			t.Fatal(step, w.Result().Header, w.Body.String())
+		}
+	}
+	if w := hobby(s, "expired", "0762167007", "1", "2"); w.Result().Header.Get("FreeFlow") != "FB" {
+		t.Fatal(w.Result().Header)
+	}
+	r := httptest.NewRequest("GET", "/ussd", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != 401 || w.Result().Header.Get("FreeFlow") != "FB" {
+		t.Fatal(w.Code, w.Result().Header)
+	}
+	if w := hobby(s, "invalid", "0762167007", "bad", "2"); w.Code != 400 || w.Result().Header.Get("FreeFlow") != "FB" {
+		t.Fatal(w.Code, w.Result().Header)
+	}
+}
