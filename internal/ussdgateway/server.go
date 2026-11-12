@@ -28,16 +28,19 @@ type Reader interface {
 }
 
 type session struct {
-	gate         chan struct{}
-	binding      [32]byte
-	expires      time.Time
-	last         string
-	ended        bool
-	responses    map[string]string
-	payLoans     []PayLoan
-	hobbyNames   []string
-	hobbyPage    int
-	hobbyWelcome string
+	gate             chan struct{}
+	binding          [32]byte
+	expires          time.Time
+	last             string
+	ended            bool
+	responses        map[string]string
+	payLoans         []PayLoan
+	hobbyNames       []string
+	hobbyPage        int
+	hobbyWelcome     string
+	hobbyPaymentPath string
+	hobbySessionID   string
+	hobbyHasPayments bool
 }
 
 type Server struct {

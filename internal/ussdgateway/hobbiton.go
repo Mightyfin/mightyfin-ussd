@@ -71,16 +71,22 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		phone = "260" + phone[1:]
 	}
 	// Initial input is the gateway's entry selection (e.g. 29), not a menu answer.
-	inputLimit := 1
+	inputLimit := 10
 	if kind == "1" {
 		inputLimit = 32
 	}
 	validInput := len(input) <= inputLimit
 	navigation := kind == "2" && (input == "*" || input == "#")
 	for _, c := range input {
-		if !navigation && (c < '0' || c > '9') {
+		if !navigation && (c < '0' || c > '9') && c != '.' {
 			validInput = false
 		}
+	}
+	if kind == "1" && strings.Contains(input, ".") {
+		validInput = false
+	}
+	if kind == "2" && !navigation && !moneyInput.MatchString(input) {
+		validInput = false
 	}
 	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || (kind != "1" && kind != "2") || !validInput {
 		hobbitonOutput(w, 400, "END Invalid callback fields.")
@@ -155,8 +161,9 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next := *current
+	next.hobbySessionID = id
 	response := s.hobbitonMenu(ctx, &next, phone, input)
-	if ctx.Err() != nil {
+	if ctx.Err() != nil && !(next.last == "payment" && strings.HasPrefix(response, "END ")) {
 		hobbitonOutput(w, 503, "END Service unavailable. Please try again.")
 		return
 	}
@@ -164,6 +171,10 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	current.hobbyNames = next.hobbyNames
 	current.hobbyPage = next.hobbyPage
 	current.hobbyWelcome = next.hobbyWelcome
+	current.hobbyPaymentPath = next.hobbyPaymentPath
+	current.hobbyHasPayments = next.hobbyHasPayments
+	current.hobbySessionID = next.hobbySessionID
+	current.payLoans = next.payLoans
 	current.ended = strings.HasPrefix(response, "END ")
 	current.responses = map[string]string{fingerprint: response}
 	hobbitonOutput(w, 200, response)

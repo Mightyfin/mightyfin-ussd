@@ -21,10 +21,10 @@ func TestHobbitonBrowsingAndRetries(t *testing.T) {
 	f := &fakeReader{}
 	s := &Server{Key: testKey, Reader: f}
 	for _, step := range []struct{ input, kind, want string }{
-		{"1", "1", "Mighty Finance"},
-		{"1", "1", "Mighty Finance"}, // initial retry must not select a product
+		{"1", "1", "MightyFin"},
+		{"1", "1", "MightyFin"}, // initial retry must not select a product
 		{"1", "2", "Loan products"},
-		{"*", "2", "Mighty Finance"},
+		{"*", "2", "MightyFin"},
 		{"1", "2", "Loan products"},
 		{"0", "2", "Thank you"},
 		{"0", "2", "Thank you"},
@@ -54,7 +54,7 @@ func TestHobbitonNormalizationAndIsolation(t *testing.T) {
 	if w := callback(s, "same", "", "260970000001", ""); w.Code != 200 {
 		t.Fatal(w.Code)
 	}
-	for _, input := range []string{"2", "3", "4"} {
+	for _, input := range []string{"2"} {
 		hobby(s, "private"+input, "260762167007", "", "1")
 		w := hobby(s, "private"+input, "260762167007", input, "2")
 		if !strings.Contains(w.Body.String(), "Please choose an option from the menu") {
@@ -168,11 +168,11 @@ func TestHobbitonParameterCasingAndEntrySelection(t *testing.T) {
 		want     int
 		contains string
 	}{
-		{"INPUT=29&MSISDN=260773016722&RequestType=1&SESSION_ID=17939496960758482", 200, "Mighty Finance"},
-		{"iNpUt=29&mSiSdN=260773016722&rEqUeStTyPe=1&sEsSiOn_Id=mixed", 200, "Mighty Finance"},
-		{"input=29&msisdn=260773016722&requestType=1&SESSION_ID=lower", 200, "Mighty Finance"},
+		{"INPUT=29&MSISDN=260773016722&RequestType=1&SESSION_ID=17939496960758482", 200, "MightyFin"},
+		{"iNpUt=29&mSiSdN=260773016722&rEqUeStTyPe=1&sEsSiOn_Id=mixed", 200, "MightyFin"},
+		{"input=29&msisdn=260773016722&requestType=1&SESSION_ID=lower", 200, "MightyFin"},
 		{"INPUT=29&input=1&MSISDN=260773016722&RequestType=1&SESSION_ID=duplicate", 400, "Invalid callback"},
-		{"INPUT=29&MSISDN=260773016722&RequestType=2&SESSION_ID=bad-continuation", 400, "Invalid callback"},
+		{"INPUT=29&MSISDN=260773016722&RequestType=2&SESSION_ID=bad-continuation", 200, "Session expired"},
 		{"INPUT=" + strings.Repeat("1", 33) + "&MSISDN=260773016722&RequestType=1&SESSION_ID=long", 400, "Invalid callback"},
 		{"INPUT=2%2A9&MSISDN=260773016722&RequestType=1&SESSION_ID=invalid-entry", 400, "Invalid callback"},
 	} {
@@ -203,12 +203,12 @@ func TestHobbitonParameterCasingAndEntrySelection(t *testing.T) {
 
 func TestHobbitonPlainBodyAndInternalTermination(t *testing.T) {
 	s := &Server{Key: testKey, Reader: &fakeReader{}}
-	if w := hobby(s, "plain", "0762167007", "29", "1"); w.Body.String() != "Welcome\nMighty Finance\n1 Loan products\n0 Exit" {
+	if w := hobby(s, "plain", "0762167007", "29", "1"); w.Body.String() != "Welcome\nMightyFin\n1 Loan products\n0 Exit" {
 		t.Fatal(w.Body.String())
 	}
 	for i := 0; i < 2; i++ {
 		w := hobby(s, "plain", "0762167007", "0", "2")
-		if w.Body.String() != "Thank you for choosing Mighty Finance." {
+		if w.Body.String() != "Thank you for choosing MightyFin." {
 			t.Fatal(w.Body.String())
 		}
 	}
@@ -282,5 +282,61 @@ func TestHobbitonCataloguePagingBudget(t *testing.T) {
 	}
 	if text := s.hobbitonMenu(context.Background(), c, "", "5"); !strings.Contains(text, "4 More") {
 		t.Fatal(text)
+	}
+}
+
+func TestHobbitonLiveCollectionIntegration(t *testing.T) {
+	for _, amount := range []string{"25.50", "1"} {
+		f := &fakePayments{status: "pending"}
+		s := &Server{Key: testKey, Payments: f, Reader: &fakeReader{}}
+		for _, step := range []struct{ input, kind, want string }{
+			{"29", "1", "3 Make payment"}, {"3", "2", "Select loan"}, {"1", "2", "Enter payment amount"},
+			{amount, "2", "Confirm"},
+		} {
+			w := hobby(s, "collection", "0762167007", step.input, step.kind)
+			if w.Code != 200 || !strings.Contains(w.Body.String(), step.want) || w.Header().Get("FreeFlow") != "FC" || f.calls != 0 {
+				t.Fatal(step, w.Code, w.Body.String(), f.calls)
+			}
+		}
+		confirm := "1"
+		if amount == "1" {
+			confirm = "2"
+		}
+		for i := 0; i < 2; i++ {
+			w := hobby(s, "collection", "0762167007", confirm, "2")
+			if w.Code != 200 || w.Header().Get("FreeFlow") != "FB" || !strings.Contains(w.Body.String(), "mobile-money prompt") || strings.Contains(strings.ToLower(w.Body.String()), "lipila") {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		}
+		if f.calls != 1 || f.phone != "260762167007" || f.loan != 201 {
+			t.Fatal(f)
+		}
+	}
+}
+func TestHobbitonCollectionNavigationAndNoAccidentalConsent(t *testing.T) {
+	f := &fakePayments{status: "pending"}
+	s := &Server{Key: testKey, Payments: f, Reader: &fakeReader{}}
+	for _, input := range []string{"29", "3", "1", "25", "*", "*", "*", "3", "#", "3", "1", "1", "1"} {
+		kind := "2"
+		if input == "29" {
+			kind = "1"
+		}
+		hobby(s, "nav-pay", "0762167007", input, kind)
+	}
+	if f.calls != 0 {
+		t.Fatal("repeated amount was treated as confirmation")
+	}
+}
+func TestHobbitonPaymentStatusUsesLms(t *testing.T) {
+	f := &fakePayments{status: "completed"}
+	s := &Server{Key: testKey, Payments: f, Reader: &fakeReader{}}
+	hobby(s, "receipt", "0762167007", "29", "1")
+	w := hobby(s, "receipt", "0762167007", "4", "2")
+	if !strings.Contains(w.Body.String(), "Select loan") {
+		t.Fatal(w.Body.String())
+	}
+	w = hobby(s, "receipt", "0762167007", "1", "2")
+	if w.Header().Get("FreeFlow") != "FB" || !strings.Contains(w.Body.String(), "confirmed and recorded") || f.calls != 0 {
+		t.Fatal(w.Body.String(), f.calls)
 	}
 }

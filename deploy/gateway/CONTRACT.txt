@@ -5,7 +5,8 @@ GET query fields (case-insensitive, exactly one each):
   msisdn       260762167007, +260762167007 (encode + as %2B), or 0762167007
   SESSION_ID   Nonempty unique ID per dial, 1–80 letters/digits/underscore/hyphen
   input        Initial dial: empty or up to 32 ASCII digits (e.g. INPUT=29).
-               Subsequent requests: latest answer only, empty or one ASCII digit.
+               Subsequent requests: latest answer only; a menu digit, * or #, or
+               a positive payment amount with up to 7 integer and 2 decimal digits.
   requestType  1 = initial dial; 2 = subsequent request
 
 Hobbiton source IP: 41.175.8.68. No Authorization header is required for requests
@@ -32,7 +33,9 @@ is bound to the session; local/international formats normalize to one identity.
 Initial and terminal identical callbacks replay their responses. Active menu
 answers advance state even when consecutive answers are identical (e.g. 1 then 1).
 Without a request sequence ID, a fresh answer and a network retry cannot always be
-distinguished; the active GET menus remain read-only. A late type 1
+distinguished. Payment confirmation is explicit and differs from a repeated
+one-digit amount (amount 1 requires 2 Confirm); durable LMS idempotency and pending
+collection checks protect collection retries. A late type 1
 after navigation returns 409. State is memory-only, expires after five minutes,
 and is lost on process restart. IDs must be unique per dial. Delayed/out-of-order
 retries cannot be fully distinguished without an operator request sequence number;
@@ -44,12 +47,24 @@ unavailable identity lookup uses generic Welcome. No NRC, account ID, balance or
 other profile attributes are returned by this endpoint. Numbers are normalized.
 The welcome lookup is allowed independently of financial clearing readiness.
 
-Live menu: 1 Loan products, 0 Exit. Products are numbered and selectable, three per
+Live menu: 1 Loan products, 3 Make payment, 4 Payment status, 0 Exit. Products are numbered and selectable, three per
 page; 4 More and 5 Previous page appear when needed. Product screens are informational
 and do not represent loan eligibility or create applications. * returns to the
 previous menu, # opens Main. These characters must be URL-encoded in GET parameters
-(in particular # as %23). Applications and payments are not enabled on this GET
-journey. GET and POST session state remains isolated.
+(in particular # as %23). Application submission is not yet enabled on this GET journey.
+Payment menus reuse the private USSD adapter and deployed LMS CollectionService,
+CollectionGateway and CollectionRepaymentPoster. The same caller-number ownership
+checks, Lipila mobile-money integration, durable idempotency, verified callbacks
+and ledger posting are used. No provider branding is shown on customer screens.
+Flow: 3 -> own loan -> amount -> explicit confirmation -> wallet-provider prompt.
+The wallet PIN is entered in the separate provider prompt, never in this callback.
+4 selects an own loan with this channel's history and verifies the latest payment.
+* returns one payment step; # leaves the flow for Main; 0 cancels before initiation.
+Terminal confirmations replay their response; timeout after initiation is reported
+as processing, never as definitive failure.
+Configuration block observed on 12 November: provider configured; payment type
+lipila_mobile_money has no active GL clearing mapping. New collections remain
+blocked until the intended ledger mapping is provided. No live debit was tested. GET and POST session state remains isolated.
 
 Test dialling code supplied by Hobbiton: *488*29#
 

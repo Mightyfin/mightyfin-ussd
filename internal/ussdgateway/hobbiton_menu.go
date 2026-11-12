@@ -19,7 +19,11 @@ func welcomeName(name string) string {
 	return strings.TrimSpace(b.String())
 }
 func hobbyHome(current *session) string {
-	return "CON " + current.hobbyWelcome + "\nMighty Finance\n1 Loan products\n0 Exit"
+	text := "CON " + current.hobbyWelcome + "\nMightyFin\n1 Loan products"
+	if current.hobbyHasPayments {
+		text += "\n3 Make payment\n4 Payment status"
+	}
+	return text + "\n0 Exit"
 }
 func hobbyCatalogue(current *session) string {
 	text := "CON Loan products"
@@ -42,6 +46,7 @@ func hobbyCatalogue(current *session) string {
 func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, input string) string {
 	if current.last == "" {
 		current.hobbyWelcome = "Welcome"
+		current.hobbyHasPayments = s.Payments != nil
 		if reader, ok := s.Payments.(interface {
 			Welcome(context.Context, string) (string, error)
 		}); ok {
@@ -55,9 +60,16 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 		return hobbyHome(current)
 	}
 	if input == "0" {
-		return "END Thank you for choosing Mighty Finance."
+		if current.last == "payment" {
+			return "END Payment cancelled. No new request was submitted."
+		}
+		return "END Thank you for choosing MightyFin."
+	}
+	if current.last == "payment" && input != "#" {
+		return s.hobbitonPayment(ctx, current, phone, input)
 	}
 	if input == "#" || (input == "*" && current.last != "product") {
+		current.hobbyPaymentPath = ""
 		current.last = "home"
 		return hobbyHome(current)
 	}
@@ -67,6 +79,11 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 	}
 	switch current.last {
 	case "home":
+		if s.Payments != nil && (input == "3" || input == "4") {
+			current.last = "payment"
+			current.hobbyPaymentPath = input
+			return paymentNavigation(s.paymentScreen(ctx, current, input, phone, current.hobbySessionID))
+		}
 		if input != "1" {
 			return "CON Please choose an option from the menu.\n# Main"
 		}
@@ -105,4 +122,41 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 	}
 	current.last = "home"
 	return hobbyHome(current)
+}
+
+func paymentNavigation(text string) string {
+	if strings.HasPrefix(text, "CON ") {
+		text = strings.ReplaceAll(text, "\n0 Cancel", "") + "\n* Previous\n# Main"
+	}
+	return text
+}
+func (s *Server) hobbitonPayment(ctx context.Context, current *session, phone, input string) string {
+	parts := strings.Split(current.hobbyPaymentPath, "*")
+	if input == "*" {
+		if len(parts) == 1 {
+			current.last = "home"
+			current.hobbyPaymentPath = ""
+			return hobbyHome(current)
+		}
+		current.hobbyPaymentPath = strings.Join(parts[:len(parts)-1], "*")
+	} else {
+		// A repeated one-digit amount must never be mistaken for payment consent.
+		if len(parts) == 3 && parts[0] == "3" {
+			confirm := "1"
+			if parts[2] == "1" {
+				confirm = "2"
+			}
+			if input != confirm {
+				return "END Payment not confirmed. No request was submitted."
+			}
+			input = "1"
+		}
+		current.hobbyPaymentPath += "*" + input
+	}
+	response := s.paymentScreen(ctx, current, current.hobbyPaymentPath, phone, current.hobbySessionID)
+	parts = strings.Split(current.hobbyPaymentPath, "*")
+	if len(parts) == 3 && parts[0] == "3" && parts[2] == "1" {
+		response = strings.Replace(response, "1 Confirm", "2 Confirm", 1)
+	}
+	return paymentNavigation(response)
 }

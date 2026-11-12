@@ -1,10 +1,11 @@
 # MightyFin USSD app
 
-Status: **Live Hobbiton callback with LMS-backed greetings and product browsing;
-full application and repayment journeys remain incomplete.**
+Status: **Live Hobbiton callback with LMS-backed greetings, product browsing and collection
+menus; application submission and live payment activation remain incomplete.**
 
 Dial *488*29#. The gateway greets uniquely matched callers by first name from LMS,
-uses a generic welcome otherwise, shows numbered product choices, and supports
+uses a generic welcome otherwise, shows numbered product choices and collection
+menus (3 Make payment, 4 Payment status), and supports
 `*` Previous and `#` Main. This callback is separate from the local simulator
 below. See deploy/gateway/CONTRACT.txt for the deployed GET protocol and limits.
 
