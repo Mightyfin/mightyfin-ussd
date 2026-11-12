@@ -41,6 +41,11 @@ type session struct {
 	hobbyPaymentPath string
 	hobbySessionID   string
 	hobbyHasPayments bool
+	leadEnabled      bool
+	leadRecord       LeadRecord
+	leadProducts     []LeadProduct
+	leadPage         int
+	leadProductName  string
 }
 
 type Server struct {
@@ -49,6 +54,7 @@ type Server struct {
 	HobbitonIP string
 	Reader     Reader
 	Payments   Payments
+	Leads      LeadService
 	mu         sync.Mutex
 	sessions   map[string]*session
 }
@@ -68,13 +74,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if s.Payments != nil {
 			mode = "payments-pilot"
 		}
+		hobbitonMode := "public-browsing-pilot"
+		if s.Leads != nil {
+			mode = "progressive-lead-capture"
+			hobbitonMode = "progressive-leads"
+		}
 		ready := false
 		if p, ok := s.Payments.(interface{ Ready(context.Context) bool }); ok {
 			ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 			ready = p.Ready(ctx)
 			cancel()
 		}
-		b, _ := json.Marshal(map[string]any{"status": "ok", "service": "ussd-gateway", "callback_ready": true, "contract": "mightyfin-v1-proposed", "hobbiton_get_ready": true, "hobbiton_get_mode": "public-browsing-pilot", "mode": mode, "customer_onboarding_ready": false, "payment_menu_enabled": s.Payments != nil, "financial_actions_enabled": ready})
+		b, _ := json.Marshal(map[string]any{"status": "ok", "service": "ussd-gateway", "callback_ready": true, "contract": "mightyfin-v1-proposed", "hobbiton_get_ready": true, "hobbiton_get_mode": hobbitonMode, "mode": mode, "customer_onboarding_ready": false, "lead_capture_enabled": s.Leads != nil, "payment_menu_enabled": s.Payments != nil, "financial_actions_enabled": ready})
 		output(w, 200, string(b))
 		return
 	}

@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // hobbitonSourceAllowed trusts only the configured loopback tunnel ingress.
@@ -87,6 +89,14 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	}
 	if kind == "2" && !navigation && !moneyInput.MatchString(input) {
 		validInput = false
+	}
+	if kind == "2" && s.Leads != nil {
+		validInput = len(input) > 0 && len(input) <= 160 && utf8.ValidString(input)
+		for _, c := range input {
+			if unicode.IsControl(c) {
+				validInput = false
+			}
+		}
 	}
 	if !sessionID.MatchString(id) || !phoneNumber.MatchString(phone) || (kind != "1" && kind != "2") || !validInput {
 		hobbitonOutput(w, 400, "END Invalid callback fields.")
@@ -173,6 +183,11 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	current.hobbyWelcome = next.hobbyWelcome
 	current.hobbyPaymentPath = next.hobbyPaymentPath
 	current.hobbyHasPayments = next.hobbyHasPayments
+	current.leadEnabled = next.leadEnabled
+	current.leadRecord = next.leadRecord
+	current.leadProducts = next.leadProducts
+	current.leadPage = next.leadPage
+	current.leadProductName = next.leadProductName
 	current.hobbySessionID = next.hobbySessionID
 	current.payLoans = next.payLoans
 	current.ended = strings.HasPrefix(response, "END ")

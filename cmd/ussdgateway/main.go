@@ -59,6 +59,13 @@ func run() error {
 		}
 		handler.Payments = &ussdgateway.PaymentClient{Key: paymentKey, HTTP: client}
 	}
+	if path := os.Getenv("USSD_LEADS_KEY_FILE"); path != "" {
+		key, e := keyFile(path)
+		if e != nil {
+			return e
+		}
+		handler.Leads = &ussdgateway.LeadClient{PaymentClient: ussdgateway.PaymentClient{Key: key, HTTP: client}}
+	}
 	server := &http.Server{Addr: "127.0.0.1:28093", Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 6 * time.Second, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 8192}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -68,7 +75,7 @@ func run() error {
 		defer cancel()
 		_ = server.Shutdown(shutdown)
 	}()
-	log.Printf("USSD proposed-contract gateway listening on 127.0.0.1:28093; payments=%t", handler.Payments != nil)
+	log.Printf("USSD proposed-contract gateway listening on 127.0.0.1:28093; payments=%t leads=%t", handler.Payments != nil, handler.Leads != nil)
 	err = server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil

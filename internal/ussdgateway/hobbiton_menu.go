@@ -19,6 +19,19 @@ func welcomeName(name string) string {
 	return strings.TrimSpace(b.String())
 }
 func hobbyHome(current *session) string {
+	if current.leadEnabled {
+		if current.leadRecord.HasLoan {
+			return "CON " + current.hobbyWelcome + "\n1 Repay your loan\n2 Payment status\n3 Get assistance\n0 Exit"
+		}
+		if current.leadRecord.ApplicationReference != "" {
+			return "CON " + current.hobbyWelcome + "\n1 Check application\n2 Repay a loan\n3 Get assistance\n0 Exit"
+		}
+		label := "Apply for a loan"
+		if current.leadRecord.Reference != "" {
+			label = "Continue loan enquiry"
+		}
+		return "CON " + current.hobbyWelcome + "\n1 " + label + "\n2 Repay a loan\n3 Get assistance\n4 Payment status\n0 Exit"
+	}
 	text := "CON " + current.hobbyWelcome + "\n1 Loan products"
 	if current.hobbyHasPayments {
 		text += "\n3 Make payment\n4 Payment status"
@@ -47,6 +60,12 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 	if current.last == "" {
 		current.hobbyWelcome = "Welcome to MightyFin"
 		current.hobbyHasPayments = s.Payments != nil
+		current.leadEnabled = s.Leads != nil
+		if s.Leads != nil {
+			if r, e := s.leadRequest(ctx, current, phone, "current", nil); e == nil {
+				current.leadRecord = r
+			}
+		}
 		if reader, ok := s.Payments.(interface {
 			Welcome(context.Context, string) (string, error)
 		}); ok {
@@ -58,6 +77,20 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 		}
 		current.last = "home"
 		return hobbyHome(current)
+	}
+	if current.last == "application-existing" {
+		if input == "#" || input == "*" {
+			current.last = "home"
+			return hobbyHome(current)
+		}
+		if input == "1" {
+			current.last = "assistance-consent"
+			return "CON May our team contact you on this number?\n2 Request assistance\n0 Cancel\n# Main"
+		}
+		return "CON Choose 1 for assistance or # for Main."
+	}
+	if strings.HasPrefix(current.last, "lead-") || current.last == "assistance-consent" {
+		return s.leadMenu(ctx, current, phone, input)
 	}
 	if input == "0" {
 		if current.last == "payment" {
@@ -79,6 +112,34 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 	}
 	switch current.last {
 	case "home":
+		if s.Leads != nil {
+			if current.leadRecord.HasLoan && input != "3" {
+				if input == "1" {
+					input = "2"
+				} else if input == "2" {
+					input = "4"
+				} else if input != "4" {
+					return "CON Please choose an option from the menu.\n# Main"
+				}
+			}
+			if !current.leadRecord.HasLoan && current.leadRecord.ApplicationReference != "" && input == "1" {
+				current.last = "application-existing"
+				return "CON Application " + current.leadRecord.ApplicationReference + " is already in LMS.\n1 Request assistance to continue\n# Main"
+			}
+			if input == "1" {
+				current.last = "lead-consent"
+				return "CON May MightyFin record your loan enquiry and contact you?\n2 Continue\n0 Cancel\n# Main"
+			}
+			if input == "3" {
+				current.last = "assistance-consent"
+				return "CON May our team contact you on this number?\n2 Request assistance\n0 Cancel\n# Main"
+			}
+			if input == "2" {
+				input = "3"
+			} else if input != "4" {
+				return "CON Please choose an option from the menu.\n# Main"
+			}
+		}
 		if s.Payments != nil && (input == "3" || input == "4") {
 			current.last = "payment"
 			current.hobbyPaymentPath = input

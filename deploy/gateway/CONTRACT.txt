@@ -5,8 +5,9 @@ GET query fields (case-insensitive, exactly one each):
   msisdn       260762167007, +260762167007 (encode + as %2B), or 0762167007
   SESSION_ID   Nonempty unique ID per dial, 1–80 letters/digits/underscore/hyphen
   input        Initial dial: empty or up to 32 ASCII digits (e.g. INPUT=29).
-               Subsequent requests: latest answer only; a menu digit, * or #, or
-               a positive payment amount with up to 7 integer and 2 decimal digits.
+               Subsequent requests: latest answer only; a menu digit, * or #,
+               amount, or an optional name at its designated prompt. At most 160
+               UTF-8 bytes; control characters are rejected. URL-encode values.
   requestType  1 = initial dial; 2 = subsequent request
 
 Hobbiton source IP: 41.175.8.68. No Authorization header is required for requests
@@ -51,7 +52,13 @@ Live menu: 1 Loan products, 3 Make payment, 4 Payment status, 0 Exit. Products a
 page; 4 More and 5 Previous page appear when needed. Product screens are informational
 and do not represent loan eligibility or create applications. * returns to the
 previous menu, # opens Main. These characters must be URL-encoded in GET parameters
-(in particular # as %23). Application submission is not yet enabled on this GET journey.
+(in particular # as %23). Progressive lead capture is enabled: an enquiry is saved in the existing LMS Leads
+module with source USSD, without account registration, PIN, OTP or completed KYC.
+It remains a lead for later staff qualification/conversion; it is not credit approval.
+Main menu is Apply/Continue enquiry, Repay, Get assistance and Payment status.
+Borrowers see repayment first; existing applications use the continuation/assistance
+route. Partial lead progress and follow-up requests share a durable LEAD reference.
+Private lead requests use separate leads:ussd credentials. See USSD-LEADS.txt.
 Payment menus reuse the private USSD adapter and deployed LMS CollectionService,
 CollectionGateway and CollectionRepaymentPoster. The same caller-number ownership
 checks, Lipila mobile-money integration, durable idempotency, verified callbacks

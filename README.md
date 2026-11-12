@@ -1,13 +1,16 @@
 # MightyFin USSD app
 
-Status: **Live Hobbiton callback with LMS-backed greetings, product browsing and collection
-menus; application submission and live payment activation remain incomplete.**
+Status: **Live Hobbiton callback with progressive LMS lead capture, assistance,
+LMS-backed greetings and collection menus.** Real collection activation still needs
+the designated GL mapping and payment handset verification.
 
-Dial *488*29#. The gateway greets uniquely matched callers by first name from LMS,
-uses a generic welcome otherwise, shows numbered product choices and collection
-menus (3 Make payment, 4 Payment status), and supports
-`*` Previous and `#` Main. This callback is separate from the local simulator
-below. See deploy/gateway/CONTRACT.txt for the deployed GET protocol and limits.
+Dial *488*29#. Prospects can record a USSD-sourced lead without an account, PIN or
+OTP, save partial details and continue later with the same reference. Loan officers
+complete qualification and convert the lead through the existing LMS workflow.
+Borrowers see repayment first. Navigation is `*` Previous and `#` Main. See
+[lead-capture details](deploy/USSD-LEADS.txt) and the [gateway contract](deploy/gateway/CONTRACT.txt).
+
+The separate local simulator documented below is not the public callback.
 
 The simulator is based on the 22 October 2026 version 1.2 requirements. Its identities, offers, balances and
 payments are synthetic. The simulator makes no outgoing API calls and needs no accounts, provider

@@ -1,0 +1,56 @@
+USSD progressive lead capture — 12 November 2026
+
+Public flow: *488*29# -> Apply for a loan -> consent -> product -> requested
+amount (or officer to advise) -> optional name -> confirm follow-up.
+
+After consent, the existing LMS Leads module contains the real lead. Each valid
+step saves to that same record; a new dial can resume it. A captured enquiry is
+not an account, submitted credit application, KYC approval, qualification or loan
+approval. A loan officer completes missing information/documents and uses the
+existing LMS qualification/conversion workflow later. The converted_application_id
+and lead_id links retain the original lead and its USSD source.
+
+The public greeting uses a name only from a uniquely matched existing LMS user.
+A name supplied as lead information does not become an authenticated account name.
+Unknown/ambiguous/unavailable name lookup uses Welcome to MightyFin.
+
+Main menu: 1 Apply/Continue enquiry, 2 Repay, 3 Get assistance, 4 Payment status.
+Existing borrowers see repayment first. Existing applications open an assistance
+route instead of another application. * Previous; # Main (URL-encode as %23).
+Consent uses a different selection from opening Apply, avoiding a repeated menu
+selection being mistaken for consent. No PIN or OTP is requested for lead capture.
+Public registration/login and full application completion checks are unchanged.
+
+Data: existing leads, lead_activities and lead_sources tables. New leads have
+lead_type=customer, source=USSD, status=new, qualification_status=pending and a real
+LEAD-... reference. existing_user_id is linked only on a unique phone match; no user,
+wallet or account credentials are created. Validated partial details are saved.
+Existing open leads are reused; another channel's source and staff-qualified data
+are not overwritten. Staff can continue from https://admin.mightyfinance.co.zm/leads
+and the existing detail/edit/conversion tools. Unassigned entries remain in the
+normal leads queue for staff assignment; no assignment or response SLA is invented.
+
+Private POST /v1/leads uses a separate integration bearer scope leads:ussd. It is
+loopback-only through the existing channel sidecar (port 28094), not a public
+PIN/OTP bypass. The public gateway authenticates Hobbiton before supplying MSISDN.
+Actions: current, catalogue, start, save, submit, assistance. start/submit/assistance
+require consent. Phone numbers cannot be overridden by the handset. request_id is
+derived server-side from session, caller and command. A per-caller lock and DB
+transaction reuse an open lead; repeat consent/follow-up requests replay safely.
+Staff follow-up and consent are recorded in lead_activities. No automatic customer
+notification or guaranteed callback time is claimed by this implementation.
+
+Runtime: USSD_LEADS_KEY_FILE points to a private 0600 credential file. The credential
+is stored as a hash in lms_integration_credentials, with a 90-day expiry; rotate it
+before expiry. No raw operator/customer credentials, phone numbers or answer text
+are logged by the gateway. Session state is memory-only; validated lead state is in
+LMS and survives a gateway restart. Do not delete leads to reset a session.
+
+Payment path remains the existing scoped LMS collection integration. Its missing
+lipila_mobile_money GL mapping is independent of lead capture; no financial guards
+are bypassed to collect a lead. Real collections need that mapping and handset UAT.
+
+Verification: Go gateway/unit flow tests; actual Laravel Lead/LeadActivity models
+with isolated SQLite migrations; consent, duplicate replay, cross-caller lookup,
+partial resume, optional details, preserved other-channel source and qualified-lead
+protection. No artificial production customers or leads are created by these tests.
