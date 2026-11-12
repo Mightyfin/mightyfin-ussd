@@ -7,12 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
 type LeadProduct struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	Minimum string `json:"minimum"`
+	Maximum string `json:"maximum"`
+	ID      int64  `json:"id"`
+	Name    string `json:"name"`
 }
 type LeadRecord struct {
 	ApplicationReference string        `json:"application_reference"`
@@ -135,7 +138,7 @@ func (s *Server) leadMenu(ctx context.Context, c *session, phone, input string) 
 				switch r.NextStep {
 				case "amount":
 					c.last = "lead-amount"
-					return "CON Requested amount in ZMW?\n0 Officer to advise\n* Previous\n# Main"
+					return leadAmountPrompt(c)
 				case "name":
 					c.last = "lead-name"
 					return "CON Your full name?\n0 Skip for now\n* Previous\n# Main"
@@ -176,7 +179,7 @@ func (s *Server) leadMenu(ctx context.Context, c *session, phone, input string) 
 		c.leadRecord = r
 		c.leadProductName = p.Name
 		c.last = "lead-amount"
-		return "CON Requested amount in ZMW?\n0 Let an officer advise\n* Previous\n# Main"
+		return leadAmountPrompt(c)
 	case "lead-amount":
 		if input == "*" {
 			c.last = "lead-products"
@@ -184,15 +187,18 @@ func (s *Server) leadMenu(ctx context.Context, c *session, phone, input string) 
 		}
 		var amount any
 		if input != "0" {
-			a, ok := amountString(input)
+			a, ok := leadAmountInRange(c, input)
 			if !ok {
-				return "CON Enter a positive amount, e.g. 500.00.\n0 Officer to advise\n* Previous\n# Main"
+				return leadAmountPrompt(c)
 			}
 			amount = a
 		}
 		r, e := call("save", map[string]any{"amount": amount})
 		if e != nil {
-			return "CON Amount could not be saved. Retry it.\n# Main"
+			if fresh, err := call("catalogue", nil); err == nil {
+				c.leadProducts = fresh.Products
+			}
+			return "CON Amount not saved.\n" + strings.TrimPrefix(leadAmountPrompt(c), "CON ")
 		}
 		c.leadRecord = r
 		c.last = "lead-name"
@@ -200,7 +206,7 @@ func (s *Server) leadMenu(ctx context.Context, c *session, phone, input string) 
 	case "lead-name":
 		if input == "*" {
 			c.last = "lead-amount"
-			return "CON Requested amount in ZMW?\n0 Officer to advise\n* Previous\n# Main"
+			return leadAmountPrompt(c)
 		}
 		var name any
 		if input != "0" {
@@ -249,4 +255,51 @@ func (s *Server) leadMenu(ctx context.Context, c *session, phone, input string) 
 	}
 	c.last = "home"
 	return hobbyHome(c)
+}
+
+var leadMoneyInput = regexp.MustCompile(`^(?:[1-9][0-9]{0,12}|0)(?:\.[0-9]{1,2})?$`)
+
+func leadCents(value string) (int64, bool) {
+	if !leadMoneyInput.MatchString(value) {
+		return 0, false
+	}
+	parts := strings.Split(value, ".")
+	whole, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	fraction := "00"
+	if len(parts) == 2 {
+		fraction = parts[1]
+		if len(fraction) == 1 {
+			fraction += "0"
+		}
+	}
+	cents, _ := strconv.ParseInt(fraction, 10, 64)
+	return whole*100 + cents, true
+}
+func leadBounds(c *session) (int64, int64, bool) {
+	for _, p := range c.leadProducts {
+		if p.ID == c.leadRecord.ProductID {
+			min, ok := leadCents(p.Minimum)
+			max, valid := leadCents(p.Maximum)
+			return min, max, ok && valid && max > 0 && max >= min
+		}
+	}
+	return 0, 0, false
+}
+func leadAmountInRange(c *session, value string) (string, bool) {
+	amount, ok := leadCents(value)
+	min, max, valid := leadBounds(c)
+	if !ok || !valid || amount <= 0 || amount < min || amount > max {
+		return "", false
+	}
+	return fmt.Sprintf("%d.%02d", amount/100, amount%100), true
+}
+func leadAmountPrompt(c *session) string {
+	min, max, ok := leadBounds(c)
+	if !ok {
+		return "CON Product amount range is unavailable.\n0 Let an officer advise\n* Previous\n# Main"
+	}
+	return fmt.Sprintf("CON Requested amount in ZMW?\nMin K%d.%02d - Max K%d.%02d\n0 Officer to advise\n* Previous\n# Main", min/100, min%100, max/100, max%100)
 }

@@ -2,6 +2,11 @@ USSD progressive lead capture — 12 November 2026
 
 Public flow: *488*29# -> Apply for a loan -> consent -> product -> requested
 amount (or officer to advise) -> optional name -> confirm follow-up.
+The amount prompt shows the selected product's min_principal_amount and
+max_principal_amount from LMS. Bounds are inclusive; the server rechecks the active
+product and its current range on each amount save. No gateway prices are hardcoded.
+Invalid entries repeat the range. Missing/invalid ranges use officer assistance;
+partial lead capture remains available without inventing approved limits.
 
 After consent, the existing LMS Leads module contains the real lead. Each valid
 step saves to that same record; a new dial can resume it. A captured enquiry is

@@ -40,10 +40,10 @@ final class LeadEndpoint {
             'request_id'=>['required','string','regex:/^[a-f0-9]{64}$/'],
             'lead_ref'=>'required_if:action,save,submit|string|max:40',
             'consent'=>'sometimes|accepted','product_id'=>'sometimes|integer|min:1',
-            'amount'=>['nullable','string','regex:/^(?:[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$/'],
+            'amount'=>['nullable','string','numeric','gt:0','regex:/^(?:[1-9][0-9]{0,12}|0)(?:\.[0-9]{1,2})?$/'],
             'name'=>['nullable','string','min:3','max:80','regex:/^[\pL\pM][\pL\pM\s.\x{0027}-]+$/u']]);
         $phone=$v['phone'];$action=$v['action'];
-        if($action==='catalogue')return response()->json(['products'=>LoanProduct::where('status',1)->orderBy('name')->limit(100)->get(['id','name'])]);
+        if($action==='catalogue')return response()->json(['products'=>LoanProduct::where('status',1)->orderBy('name')->limit(100)->get(['id','name','min_principal_amount','max_principal_amount'])->map(fn($p)=>['id'=>$p->id,'name'=>mb_substr($p->name,0,80),'minimum'=>is_numeric($p->min_principal_amount)?number_format($p->min_principal_amount,2,'.',''):null,'maximum'=>is_numeric($p->max_principal_amount)?number_format($p->max_principal_amount,2,'.',''):null])]);
         if($action==='current') {
             $result=$this->representation($this->current($phone));
             $ids=DB::table('users')->whereIn('phone',[$phone,'+'.$phone,'0'.substr($phone,3),substr($phone,3)])->limit(2)->pluck('id');
@@ -93,7 +93,16 @@ final class LeadEndpoint {
                     if(!LoanProduct::whereKey($v['product_id'])->where('status',1)->exists())return response()->json(['error'=>'PRODUCT_UNAVAILABLE'],422);
                     $lead->requested_product_id=$v['product_id'];
                 }
-                if(array_key_exists('amount',$v))$lead->customer_est_loan_amount=$v['amount'];
+                if(array_key_exists('amount',$v)) {
+                    if($v['amount']!==null) {
+                        $product=LoanProduct::whereKey($lead->requested_product_id)->where('status',1)
+                            ->whereNotNull('min_principal_amount')->where('min_principal_amount','>=',0)
+                            ->where('max_principal_amount','>',0)->whereColumn('max_principal_amount','>=','min_principal_amount');
+                        if(!(clone $product)->exists())return response()->json(['error'=>'PRODUCT_RANGE_UNAVAILABLE'],422);
+                        if(!$product->where('min_principal_amount','<=',$v['amount'])->where('max_principal_amount','>=',$v['amount'])->exists())return response()->json(['error'=>'AMOUNT_OUTSIDE_PRODUCT_RANGE'],422);
+                    }
+                    $lead->customer_est_loan_amount=$v['amount'];
+                }
                 if(array_key_exists('name',$v))$lead->customer_name=$v['name'];
                 $changed=$lead->isDirty();if($changed)$lead->save();
             }

@@ -5,10 +5,10 @@ require __DIR__.'/LeadEndpoint.php';
 use Illuminate\Support\Facades\DB;use Illuminate\Support\Facades\Schema;use Illuminate\Database\Schema\Blueprint;
 Schema::create('users',function(Blueprint $t){$t->unsignedInteger('id')->primary();$t->string('phone')->nullable();});
 Schema::create('opportunities',function(Blueprint $t){$t->id();});
-Schema::create('loan_products',function(Blueprint $t){$t->id();$t->string('name');$t->integer('status');});
+Schema::create('loan_products',function(Blueprint $t){$t->id();$t->string('name');$t->integer('status');$t->decimal('min_principal_amount',15,2)->nullable();$t->decimal('max_principal_amount',15,2)->nullable();});
 foreach(['2026_07_20_000001_create_leads_table.php','2026_07_20_000003_create_lead_activities_table.php'] as $file){$m=require '/var/www/html/database/migrations/'.$file;$m->up();}
 $m=require '/var/www/html/database/migrations/2026_07_20_000008_add_existing_user_id_to_leads_table.php';$m->up();
-DB::table('loan_products')->insert([['id'=>1,'name'=>'Test product','status'=>1],['id'=>2,'name'=>'Inactive product','status'=>0]]);
+DB::table('loan_products')->insert([['id'=>1,'name'=>'Test product','status'=>1,'min_principal_amount'=>'100.00','max_principal_amount'=>'1000.00'],['id'=>2,'name'=>'Inactive product','status'=>0,'min_principal_amount'=>null,'max_principal_amount'=>null]]);
 $checks=0;function check($v,$label){global $checks;if(!$v)throw new RuntimeException('FAILED: '.$label);$checks++;}
 function leadCall($action,$fields=[],$phone='260970000001'){
  if(in_array($action,['save','submit'],true) && !isset($fields['lead_ref']))$fields['lead_ref']=DB::table('leads')->where('customer_contact_phone',$phone)->orderByDesc('id')->value('lead_ref');
@@ -24,6 +24,16 @@ $l=DB::table('leads')->first();check($l->source==='USSD'&&$l->status==='new'&&$l
 leadCall('start',['consent'=>true]);check(DB::table('leads')->count()===1&&DB::table('lead_activities')->count()===1,'duplicate consent reuses lead and activity');
 [$status,$r]=leadCall('save',['product_id'=>1]);check($status===200&&$r['product_id']===1&&$r['next_step']==='amount','progressive product saved');
 [$status]=leadCall('save',['product_id'=>2]);check($status===422,'inactive product rejected');
+[$status,$catalogue]=leadCall('catalogue');check($catalogue['products'][0]['minimum']==='100.00'&&$catalogue['products'][0]['maximum']==='1000.00','catalogue exposes actual product bounds');
+foreach(['99.99','1000.01'] as $a){[$status]=leadCall('save',['amount'=>$a]);check($status===422,'out of range amounts rejected');}
+[$status]=leadCall('save',['amount'=>'100.00']);check($status===200,'minimum inclusive');
+[$status]=leadCall('save',['amount'=>'1000.00']);check($status===200,'maximum inclusive');
+DB::table('loan_products')->where('id',1)->update(['max_principal_amount'=>'300.00']);
+[$status]=leadCall('save',['amount'=>'500.00']);check($status===422,'current LMS range rechecked after catalogue changes');
+DB::table('loan_products')->where('id',1)->update(['max_principal_amount'=>null]);
+[$status]=leadCall('save',['amount'=>'500.00']);check($status===422,'missing bounds cannot invent a range');
+[$status]=leadCall('save',['amount'=>null]);check($status===200,'officer assistance preserves progressive lead without an amount');
+DB::table('loan_products')->where('id',1)->update(['max_principal_amount'=>'1000.00']);
 leadCall('save',['amount'=>'500.00']);[$status,$r]=leadCall('current');check($r['amount']==='500.00'&&$r['next_step']==='name','amount resumes after a new session');
 leadCall('save',['name'=>null]);[$status,$r]=leadCall('current');check($r['next_step']==='review','optional name skipped');
 leadCall('save',['amount'=>'750.00']);leadCall('save',['amount'=>'500.00']);[$status,$r]=leadCall('current');check($r['amount']==='500.00','return to an earlier valid answer applies edit');

@@ -20,7 +20,7 @@ func (f *testLeads) Request(_ context.Context, phone, id, action string, fields 
 	f.actions = append(f.actions, action)
 	switch action {
 	case "catalogue":
-		return LeadRecord{Products: []LeadProduct{{ID: 10, Name: "Salary loan"}, {ID: 11, Name: "Business loan"}}}, nil
+		return LeadRecord{Products: []LeadProduct{{ID: 10, Name: "Salary loan", Minimum: "100.00", Maximum: "1000.00"}, {ID: 11, Name: "Business loan", Minimum: "200.00", Maximum: "2000.00"}}}, nil
 	case "start":
 		if f.record.Reference == "" {
 			f.record = LeadRecord{Reference: "LEAD-000123", Editable: true}
@@ -132,5 +132,51 @@ func TestLeadNameDoesNotBecomeAccountGreeting(t *testing.T) {
 	w := hobby(s, "prospect-name", "0762167007", "29", "1")
 	if !strings.HasPrefix(w.Body.String(), "Welcome to MightyFin\n") || strings.Contains(w.Body.String(), "Prospect Name") {
 		t.Fatal(w.Body.String())
+	}
+}
+
+func TestLeadProductAmountRange(t *testing.T) {
+	c := &session{leadRecord: LeadRecord{ProductID: 10}, leadProducts: []LeadProduct{{ID: 10, Minimum: "100.00", Maximum: "1000.00"}}}
+	for _, tt := range []struct {
+		value string
+		valid bool
+	}{{"99.99", false}, {"100", true}, {"1000.00", true}, {"1000.01", false}, {"1e3", false}, {"100.001", false}, {"0", false}} {
+		_, ok := leadAmountInRange(c, tt.value)
+		if ok != tt.valid {
+			t.Fatal(tt)
+		}
+	}
+	prompt := leadAmountPrompt(c)
+	if !strings.Contains(prompt, "Min K100.00 - Max K1000.00") || phoneUnits(prompt) > 160 {
+		t.Fatal(prompt)
+	}
+	c.leadProducts[0].Minimum = "0.25"
+	c.leadProducts[0].Maximum = "1.00"
+	if _, ok := leadAmountInRange(c, "0.50"); !ok {
+		t.Fatal("fractional amount in configured range rejected")
+	}
+	c.leadProducts[0].Maximum = ""
+	if _, ok := leadAmountInRange(c, "0.50"); ok || !strings.Contains(leadAmountPrompt(c), "unavailable") {
+		t.Fatal("missing range invented")
+	}
+	c.leadProducts[0].Minimum = "10000000.00"
+	c.leadProducts[0].Maximum = "9999999999999.99"
+	if _, ok := leadAmountInRange(c, "10000000"); !ok || phoneUnits(leadAmountPrompt(c)) > 160 {
+		t.Fatal("valid large configured amount rejected")
+	}
+}
+func TestLeadAmountPromptAndCorrection(t *testing.T) {
+	f := &testLeads{}
+	s := &Server{Key: testKey, Leads: f, Reader: &fakeReader{}}
+	for _, step := range []struct{ input, kind, want string }{
+		{"29", "1", "Apply for a loan"}, {"1", "2", "2 Continue"}, {"2", "2", "Salary loan"},
+		{"1", "2", "Min K100.00 - Max K1000.00"}, {"99.99", "2", "Min K100.00 - Max K1000.00"},
+		{"1000.01", "2", "Min K100.00 - Max K1000.00"}, {"100", "2", "Your full name"},
+		{"*", "2", "Min K100.00 - Max K1000.00"},
+	} {
+		w := hobby(s, "limits", "0762167007", step.input, step.kind)
+		if !strings.Contains(w.Body.String(), step.want) || w.Header().Get("FreeFlow") != "FC" {
+			t.Fatal(step, w.Body.String())
+		}
 	}
 }
