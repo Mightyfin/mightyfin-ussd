@@ -1,6 +1,7 @@
 package ussdgateway
 
 import (
+	"context"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -23,8 +24,7 @@ func TestHobbitonBrowsingAndRetries(t *testing.T) {
 		{"1", "1", "Mighty Finance"},
 		{"1", "1", "Mighty Finance"}, // initial retry must not select a product
 		{"1", "2", "Loan products"},
-		{"1", "2", "Loan products"},
-		{"9", "2", "Mighty Finance"},
+		{"*", "2", "Mighty Finance"},
 		{"1", "2", "Loan products"},
 		{"0", "2", "Thank you"},
 		{"0", "2", "Thank you"},
@@ -57,7 +57,7 @@ func TestHobbitonNormalizationAndIsolation(t *testing.T) {
 	for _, input := range []string{"2", "3", "4"} {
 		hobby(s, "private"+input, "260762167007", "", "1")
 		w := hobby(s, "private"+input, "260762167007", input, "2")
-		if !strings.Contains(w.Body.String(), "unavailable during connection testing") {
+		if !strings.Contains(w.Body.String(), "Please choose an option from the menu") {
 			t.Fatal(w.Body.String())
 		}
 	}
@@ -203,7 +203,7 @@ func TestHobbitonParameterCasingAndEntrySelection(t *testing.T) {
 
 func TestHobbitonPlainBodyAndInternalTermination(t *testing.T) {
 	s := &Server{Key: testKey, Reader: &fakeReader{}}
-	if w := hobby(s, "plain", "0762167007", "29", "1"); w.Body.String() != "Mighty Finance\n1 Loan products\n0 Exit" {
+	if w := hobby(s, "plain", "0762167007", "29", "1"); w.Body.String() != "Welcome\nMighty Finance\n1 Loan products\n0 Exit" {
 		t.Fatal(w.Body.String())
 	}
 	for i := 0; i < 2; i++ {
@@ -227,7 +227,7 @@ func TestHobbitonFreeFlowLifecycle(t *testing.T) {
 	s := &Server{Key: testKey, Reader: &fakeReader{}}
 	for _, step := range []struct{ input, kind, flow string }{
 		{"29", "1", "FC"}, {"29", "1", "FC"},
-		{"1", "2", "FC"}, {"1", "2", "FC"}, {"9", "2", "FC"},
+		{"1", "2", "FC"}, {"1", "2", "FC"}, {"*", "2", "FC"},
 		{"0", "2", "FB"}, {"0", "2", "FB"}, {"1", "2", "FB"},
 	} {
 		w := hobby(s, "freeflow", "0762167007", step.input, step.kind)
@@ -246,5 +246,41 @@ func TestHobbitonFreeFlowLifecycle(t *testing.T) {
 	}
 	if w := hobby(s, "invalid", "0762167007", "bad", "2"); w.Code != 400 || w.Result().Header.Get("FreeFlow") != "FB" {
 		t.Fatal(w.Code, w.Result().Header)
+	}
+}
+
+type namedPayments struct {
+	fakePayments
+	name string
+}
+
+func (p *namedPayments) Welcome(context.Context, string) (string, error) { return p.name, nil }
+func TestLiveWelcomeNumberedProductsAndNavigation(t *testing.T) {
+	s := &Server{Key: testKey, Reader: &fakeReader{}, Payments: &namedPayments{name: "George"}}
+	for _, step := range []struct{ input, kind, want string }{
+		{"29", "1", "Welcome George"}, {"1", "2", "1 Salary loan"},
+		{"1", "2", "Salary loan\nSubject to eligibility"}, {"*", "2", "1 Salary loan"},
+		{"*", "2", "Welcome George"}, {"1", "2", "2 Business loan"},
+		{"2", "2", "Business loan\nSubject to eligibility"}, {"#", "2", "Welcome George"},
+	} {
+		w := hobby(s, "live-nav", "0762167007", step.input, step.kind)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), step.want) || w.Header().Get("FreeFlow") != "FC" || phoneUnits(w.Body.String()) > 160 {
+			t.Fatal(step, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestHobbitonCataloguePagingBudget(t *testing.T) {
+	c := &session{hobbyNames: []string{strings.Repeat("[", 32), strings.Repeat("[", 32), strings.Repeat("[", 32), "Fourth"}}
+	if text := hobbyCatalogue(c); phoneUnits(strings.TrimPrefix(text, "CON ")) > 160 {
+		t.Fatal(text)
+	}
+	s := &Server{}
+	c.last = "products"
+	if text := s.hobbitonMenu(context.Background(), c, "", "4"); !strings.Contains(text, "1 Fourth") {
+		t.Fatal(text)
+	}
+	if text := s.hobbitonMenu(context.Background(), c, "", "5"); !strings.Contains(text, "4 More") {
+		t.Fatal(text)
 	}
 }

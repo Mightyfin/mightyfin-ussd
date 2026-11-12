@@ -243,3 +243,15 @@ func (p *PaymentClient) Status(c context.Context, phone string, loan int64) (str
 	e = json.Unmarshal(b, &result)
 	return result.Status, e
 }
+
+func (p *PaymentClient) Welcome(c context.Context, phone string) (string, error) {
+	b, e := p.call(c, "/v1/welcome", map[string]any{"phone": phone})
+	if e != nil {
+		return "", e
+	}
+	var result struct {
+		FirstName string `json:"first_name"`
+	}
+	e = json.Unmarshal(b, &result)
+	return result.FirstName, e
+}

@@ -23,6 +23,11 @@ final class PaymentEndpoint {
     public function handle(Request $request,CollectionService $service) {
         $input=$request->validate(['phone'=>['required','string','regex:/^260[79][0-9]{8}$/']]);
         $phone=$input['phone'];$user=$this->owner($phone);
+        if($request->path()==='v1/welcome') {
+            // Minimal caller greeting only; ambiguous/missing accounts reveal no identity.
+            $name=$user?DB::table('users')->where('id',$user)->value('first_name'):null;
+            return response()->json(['first_name'=>is_string($name)?$name:'']);
+        }
         if(!$user)return response()->json(['error'=>'ACCOUNT_UNAVAILABLE'],404);
         $credential=(int)$request->attributes->get('lms_integration_id');
         $path=$request->path();

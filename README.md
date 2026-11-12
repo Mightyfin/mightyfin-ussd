@@ -1,6 +1,12 @@
 # MightyFin USSD app
 
-Status: **Local simulator plus a separate private Admin LMS adapter. Live operator integration is not yet enabled.**
+Status: **Live Hobbiton callback with LMS-backed greetings and product browsing;
+full application and repayment journeys remain incomplete.**
+
+Dial *488*29#. The gateway greets uniquely matched callers by first name from LMS,
+uses a generic welcome otherwise, shows numbered product choices, and supports
+`*` Previous and `#` Main. This callback is separate from the local simulator
+below. See deploy/gateway/CONTRACT.txt for the deployed GET protocol and limits.
 
 The simulator is based on the 22 October 2026 version 1.2 requirements. Its identities, offers, balances and
 payments are synthetic. The simulator makes no outgoing API calls and needs no accounts, provider

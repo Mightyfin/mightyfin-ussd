@@ -76,8 +76,9 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		inputLimit = 32
 	}
 	validInput := len(input) <= inputLimit
+	navigation := kind == "2" && (input == "*" || input == "#")
 	for _, c := range input {
-		if c < '0' || c > '9' {
+		if !navigation && (c < '0' || c > '9') {
 			validInput = false
 		}
 	}
@@ -137,10 +138,11 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		hobbitonOutput(w, 409, "END Session identity changed. Please dial again.")
 		return
 	}
-	// Only an immediately repeated callback is replayed: selecting 1 after Back
-	// must not replay an earlier product screen as an old protocol event.
+	// Initial/terminal callbacks replay safely. Active menus must process repeated
+	// answers: selecting product menu 1 followed by product 1 is legitimate.
+	// With no gateway sequence ID, active repeats cannot be identified as retries.
 	fingerprint := kind + ":" + input
-	if cached, ok := current.responses[fingerprint]; ok {
+	if cached, ok := current.responses[fingerprint]; ok && (kind == "1" || current.ended) {
 		hobbitonOutput(w, 200, cached)
 		return
 	}
@@ -152,28 +154,16 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		hobbitonOutput(w, 409, "END Session ended. Please dial again.")
 		return
 	}
-	var response string
-	home := "CON Mighty Finance\n1 Loan products\n0 Exit"
-	if current.last == "" {
-		// requestType=1 opens the menu; initial input may contain the entry selection.
-		response = home
-	} else if input == "0" {
-		response = "END Thank you for choosing Mighty Finance."
-	} else if current.last == "home" && input == "1" {
-		response = s.render(ctx, "1", "")
-	} else if current.last == "products" && input == "9" {
-		response = home
-	} else {
-		response = "END This option is unavailable during connection testing. Please dial again."
-	}
+	next := *current
+	response := s.hobbitonMenu(ctx, &next, phone, input)
 	if ctx.Err() != nil {
 		hobbitonOutput(w, 503, "END Service unavailable. Please try again.")
 		return
 	}
-	current.last = "home"
-	if strings.HasPrefix(response, "CON Loan products") {
-		current.last = "products"
-	}
+	current.last = next.last
+	current.hobbyNames = next.hobbyNames
+	current.hobbyPage = next.hobbyPage
+	current.hobbyWelcome = next.hobbyWelcome
 	current.ended = strings.HasPrefix(response, "END ")
 	current.responses = map[string]string{fingerprint: response}
 	hobbitonOutput(w, 200, response)
@@ -189,7 +179,7 @@ func hobbitonOutput(w http.ResponseWriter, status int, text string) {
 	}
 	w.Header().Set("FreeFlow", flow)
 	screen := "other"
-	if strings.HasPrefix(text, "CON Mighty Finance") {
+	if strings.HasPrefix(text, "CON Welcome") {
 		screen = "home"
 	}
 	if strings.HasPrefix(text, "CON Loan products") {

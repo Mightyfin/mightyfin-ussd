@@ -10,7 +10,7 @@ try {
         response()->json(['status'=>'ok','service'=>'ussd-lms-payments','payment_account_configured'=>MightyFin\Ussd\PaymentEndpoint::accountReady(),
             'provider_configured'=>app(App\Services\Integrations\CollectionGateway::class)->ready('lipila','mobile_money') && (bool)config('services.lipila.webhook_secret')])->send();return;
     }
-    if($request->method()!=='POST' || !in_array($request->path(),['v1/loans','v1/status-loans','v1/collect','v1/status'],true)) {
+    if($request->method()!=='POST' || !in_array($request->path(),['v1/welcome','v1/loans','v1/status-loans','v1/collect','v1/status'],true)) {
         response()->json(['error'=>'NOT_FOUND'],404)->send();return;
     }
     $request->headers->set('Accept','application/json');

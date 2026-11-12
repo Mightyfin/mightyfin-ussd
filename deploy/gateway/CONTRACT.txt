@@ -29,14 +29,27 @@ Sessions: only type 1 creates a session. Initial input may contain the entry-cod
 selection and does not select a menu option. Type 2 advances the stored session.
 Missing/expired type 2 sessions receive a redial message and FreeFlow: FB. Mobile number
 is bound to the session; local/international formats normalize to one identity.
-An immediately identical requestType/input pair replays its response. A late type 1
+Initial and terminal identical callbacks replay their responses. Active menu
+answers advance state even when consecutive answers are identical (e.g. 1 then 1).
+Without a request sequence ID, a fresh answer and a network retry cannot always be
+distinguished; the active GET menus remain read-only. A late type 1
 after navigation returns 409. State is memory-only, expires after five minutes,
 and is lost on process restart. IDs must be unique per dial. Delayed/out-of-order
 retries cannot be fully distinguished without an operator request sequence number;
 confirm retry ordering before enabling financial actions on this GET flow.
 
-The GET pilot supports public loan products, Back and Exit only. It does not read
-customer accounts or initiate payments. GET and POST session state is isolated.
+The live GET flow greets a caller using the uniquely matched LMS account's first
+name through the authenticated private /v1/welcome endpoint. Missing, ambiguous or
+unavailable identity lookup uses generic Welcome. No NRC, account ID, balance or
+other profile attributes are returned by this endpoint. Numbers are normalized.
+The welcome lookup is allowed independently of financial clearing readiness.
+
+Live menu: 1 Loan products, 0 Exit. Products are numbered and selectable, three per
+page; 4 More and 5 Previous page appear when needed. Product screens are informational
+and do not represent loan eligibility or create applications. * returns to the
+previous menu, # opens Main. These characters must be URL-encoded in GET parameters
+(in particular # as %23). Applications and payments are not enabled on this GET
+journey. GET and POST session state remains isolated.
 
 Test dialling code supplied by Hobbiton: *488*29#
 
@@ -55,6 +68,7 @@ Content-Type: text/plain; charset=utf-8
 Cache-Control: no-store
 FreeFlow: FC
 
+Welcome
 Mighty Finance
 1 Loan products
 0 Exit
