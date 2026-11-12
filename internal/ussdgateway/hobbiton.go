@@ -73,7 +73,7 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 		phone = "260" + phone[1:]
 	}
 	// Initial input is the gateway's entry selection (e.g. 29), not a menu answer.
-	inputLimit := 10
+	inputLimit := 13
 	if kind == "1" {
 		inputLimit = 32
 	}
@@ -87,7 +87,7 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	if kind == "1" && strings.Contains(input, ".") {
 		validInput = false
 	}
-	if kind == "2" && !navigation && !moneyInput.MatchString(input) {
+	if kind == "2" && !navigation && !moneyInput.MatchString(input) && normalizePaymentPhone(input) == "" {
 		validInput = false
 	}
 	if kind == "2" && s.Leads != nil {
@@ -190,6 +190,8 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	current.leadProductName = next.leadProductName
 	current.hobbySessionID = next.hobbySessionID
 	current.payLoans = next.payLoans
+	current.payPage = next.payPage
+	current.hobbyPayerPhone = next.hobbyPayerPhone
 	current.ended = strings.HasPrefix(response, "END ")
 	current.responses = map[string]string{fingerprint: response}
 	hobbitonOutput(w, 200, response)

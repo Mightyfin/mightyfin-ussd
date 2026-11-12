@@ -15,8 +15,10 @@ import (
 )
 
 type PayLoan struct {
-	ID    int64  `json:"id"`
-	Label string `json:"label"`
+	ID          int64  `json:"id"`
+	Label       string `json:"label"`
+	Due         string `json:"due"`
+	Outstanding string `json:"outstanding"`
 }
 type Payments interface {
 	Loans(context.Context, string, bool) ([]PayLoan, error)
@@ -72,7 +74,13 @@ func (s *Server) paymentScreen(ctx context.Context, session *session, text, phon
 	}
 	if len(parts) == 1 {
 		loans, err := s.Payments.Loans(ctx, phone, parts[0] == "4")
-		if err != nil || len(loans) == 0 || len(loans) > 5 {
+		if err == nil && len(loans) == 0 {
+			if parts[0] == "4" {
+				return "END No payment request was found for your loans on this channel."
+			}
+			return "END You have no pending loan to pay back."
+		}
+		if err != nil || len(loans) > 5 {
 			return "END Payment options are unavailable. Please contact your loan officer."
 		}
 		session.payLoans = loans
@@ -116,23 +124,42 @@ func (s *Server) paymentScreen(ctx context.Context, session *session, text, phon
 		return "END Invalid amount. Please enter a positive amount with up to 2 decimal places."
 	}
 	if len(parts) == 3 {
-		return "CON Pay ZMW " + amount + " from this mobile-money number?\n1 Confirm\n0 Cancel"
+		payer := session.hobbyPayerPhone
+		if payer == "" {
+			payer = phone
+		}
+		return "CON Loan ..." + maskedLoan(loan) + "\nPay ZMW " + amount + "\nFrom +" + payer + "\n1 Confirm\n0 Cancel"
 	}
 	if len(parts) != 4 || parts[3] != "1" {
 		return "END Payment not confirmed. No request was submitted."
 	}
-	sum := sha256.Sum256([]byte("ussd-payment-v1\x00" + id + "\x00" + phone + "\x00" + strconv.FormatInt(loan, 10) + "\x00" + amount))
-	status, err := s.Payments.Collect(ctx, phone, loan, amount, hex.EncodeToString(sum[:]))
+	payer := session.hobbyPayerPhone
+	if payer == "" {
+		payer = phone
+	}
+	sum := sha256.Sum256([]byte("ussd-payment-v1\x00" + id + "\x00" + phone + "\x00" + strconv.FormatInt(loan, 10) + "\x00" + amount + "\x00" + payer))
+	var status string
+	if p, ok := s.Payments.(interface {
+		CollectFrom(context.Context, string, string, int64, string, string) (string, error)
+	}); ok {
+		status, err = p.CollectFrom(ctx, phone, payer, loan, amount, hex.EncodeToString(sum[:]))
+	} else if payer == phone {
+		status, err = s.Payments.Collect(ctx, phone, loan, amount, hex.EncodeToString(sum[:]))
+	} else {
+		return "END Payments from another number are unavailable. No request was submitted."
+	}
 	// A timeout can occur after a collection was created. Never say it failed or
 	// invite a fresh payment. A repeated callback uses the same durable LMS key.
 	if err != nil {
 		return "END Payment request is processing. Check payment status before retrying."
 	}
 	switch status {
+	case "balance_changed":
+		return "END Your loan balance changed. No new payment was requested. Please check your loan again."
 	case "unavailable":
 		return "END Payments are temporarily unavailable. Please contact your loan officer."
 	case "pending":
-		return "END Payment request submitted. Please wait for your mobile-money prompt and enter your wallet PIN there."
+		return "END Please wait for the payment prompt."
 	case "completed":
 		return "END Payment confirmed and recorded. Thank you."
 	case "failed":
@@ -193,6 +220,17 @@ func (p *PaymentClient) call(ctx context.Context, path string, data any) ([]byte
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(res.Body, 32769))
+	if err == nil && len(body) <= 32768 && res.StatusCode == 409 {
+		var changed struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(body, &changed) == nil && changed.Error == "ACCOUNT_REVIEW_REQUIRED" {
+			return []byte(`{"status":"unavailable"}`), nil
+		}
+		if json.Unmarshal(body, &changed) == nil && changed.Error == "LOAN_BALANCE_CHANGED" {
+			return []byte(`{"status":"balance_changed"}`), nil
+		}
+	}
 	if err == nil && len(body) <= 32768 && res.StatusCode == 503 {
 		var unavailable struct {
 			Error string `json:"error"`
@@ -215,6 +253,12 @@ func (p *PaymentClient) Loans(c context.Context, phone string, status bool) ([]P
 	if e != nil {
 		return nil, e
 	}
+	var unavailable struct {
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(b, &unavailable) == nil && unavailable.Status == "unavailable" {
+		return nil, fmt.Errorf("loan account review required")
+	}
 	var result struct {
 		Loans []PayLoan `json:"loans"`
 	}
@@ -222,7 +266,10 @@ func (p *PaymentClient) Loans(c context.Context, phone string, status bool) ([]P
 	return result.Loans, e
 }
 func (p *PaymentClient) Collect(c context.Context, phone string, loan int64, amount, key string) (string, error) {
-	b, e := p.call(c, "/v1/collect", map[string]any{"phone": phone, "loan_id": loan, "amount": amount, "request_id": key, "confirmed": true})
+	return p.CollectFrom(c, phone, phone, loan, amount, key)
+}
+func (p *PaymentClient) CollectFrom(c context.Context, phone, payer string, loan int64, amount, key string) (string, error) {
+	b, e := p.call(c, "/v1/collect", map[string]any{"phone": phone, "loan_id": loan, "payer_phone": payer, "amount": amount, "request_id": key, "confirmed": true})
 	if e != nil {
 		return "", e
 	}

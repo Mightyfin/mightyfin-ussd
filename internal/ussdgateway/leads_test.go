@@ -121,7 +121,7 @@ func TestExistingBorrowerGetsRepaymentFirst(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	w = hobby(s, "borrower", "0762167007", "1", "2")
-	if !strings.Contains(w.Body.String(), "Select loan for payment") {
+	if !strings.Contains(w.Body.String(), "Payment number") {
 		t.Fatal(w.Body.String())
 	}
 }

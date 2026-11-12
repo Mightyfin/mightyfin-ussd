@@ -35,6 +35,8 @@ type session struct {
 	ended            bool
 	responses        map[string]string
 	payLoans         []PayLoan
+	payPage          int
+	hobbyPayerPhone  string
 	hobbyNames       []string
 	hobbyPage        int
 	hobbyWelcome     string

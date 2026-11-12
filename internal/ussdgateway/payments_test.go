@@ -33,7 +33,7 @@ func (f *fakePayments) Status(context.Context, string, int64) (string, error) { 
 func TestPaymentConfirmationAndRetry(t *testing.T) {
 	f := &fakePayments{status: "pending"}
 	s := &Server{Key: testKey, Reader: &fakeReader{}, Payments: f}
-	for _, step := range []struct{ text, want string }{{"", "3 Make payment"}, {"3", "Select loan"}, {"3*1", "Enter payment amount"}, {"3*1*12.5", "Pay ZMW 12.50"}, {"3*1*12.5*1", "enter your wallet PIN there"}, {"3*1*12.5*1", "enter your wallet PIN there"}} {
+	for _, step := range []struct{ text, want string }{{"", "3 Make payment"}, {"3", "Select loan"}, {"3*1", "Enter payment amount"}, {"3*1*12.5", "Pay ZMW 12.50"}, {"3*1*12.5*1", "Please wait for the payment prompt"}, {"3*1*12.5*1", "Please wait for the payment prompt"}} {
 		w := callback(s, "pay", step.text, "+260970000001", "")
 		if w.Code != 200 || !strings.Contains(w.Body.String(), step.want) || phoneUnits(w.Body.String()) > 160 || strings.Contains(strings.ToLower(w.Body.String()), "lipila") {
 			t.Fatal(w.Code, w.Body.String())

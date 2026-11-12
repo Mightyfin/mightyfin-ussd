@@ -1,115 +1,111 @@
-Hobbiton GET transport update — 12 November 2026
+Hobbiton GET callback — current deployed contract, 12 November 2026
 
+Dialling code: *488*29#
 Callback: https://ussd.mightyfinance.co.zm/ussd
-GET query fields (case-insensitive, exactly one each):
-  msisdn       260762167007, +260762167007 (encode + as %2B), or 0762167007
-  SESSION_ID   Nonempty unique ID per dial, 1–80 letters/digits/underscore/hyphen
-  input        Initial dial: empty or up to 32 ASCII digits (e.g. INPUT=29).
-               Subsequent requests: latest answer only; a menu digit, * or #,
-               amount, or an optional name at its designated prompt. At most 160
-               UTF-8 bytes; control characters are rejected. URL-encode values.
-  requestType  1 = initial dial; 2 = subsequent request
+Health: https://ussd.mightyfinance.co.zm/healthz
 
-Hobbiton source IP: 41.175.8.68. No Authorization header is required for requests
-from this IP via the Cloudflare Tunnel. The existing operator bearer key remains
-available for authenticated diagnostics and the unchanged POST contract.
-Configure USSD_HOBBITON_ALLOWED_IP=41.175.8.68 in the gateway runtime environment.
-An empty configuration disables IP-based access; invalid IPv4 fails startup.
+GET fields (case-insensitive, exactly one of each; duplicate aliases rejected):
+  MSISDN       Trusted network caller: 260..., +260... or local 0-prefixed number.
+  SESSION_ID   Unique per dial; 1–80 letters/digits/underscore/hyphen.
+  INPUT        Initial dial: empty or up to 32 digits (e.g. 29).
+               Continuation: latest answer only, at most 160 UTF-8 bytes.
+  RequestType  1 initial dial; 2 each subsequent request.
+URL-encode values: + as %2B, # as %23, * as %2A and spaces in names.
+Unsupported fields, control characters, bodies and malformed encoding are rejected.
 
-Trust boundary: the app accepts CF-Connecting-IP only from a loopback peer, with
-one exact valid address, matching the configured IP. CF-Worker requests are denied
-for this auth path. X-Forwarded-For is never used for authorization. Both Caddy
-(28092) and application (28093) MUST remain loopback-only behind Cloudflare Tunnel.
-Host processes and Cloudflare zone administrators are trusted. Do not expose the
-origin directly, add an untrusted local proxy, or introduce header-rewriting Workers.
-Cloudflare visitor-IP removal transforms would fail closed. Source-IP changes
-require reconfiguration; browser/manual tests from other addresses are denied.
-Application/Caddy request access logs are disabled; consider Cloudflare/operator
-query logging and retention because subscriber numbers now appear in query URLs.
+Access: Hobbiton gateway 41.175.8.68 via Cloudflare Tunnel is IP-allowed, with no
+bearer header required. CF-Connecting-IP is accepted only from the loopback ingress;
+CF-Worker, duplicate IP headers and untrusted peers are denied. Both Caddy (28092)
+and app (28093) MUST remain loopback-only; local processes and zone administrators
+are trusted. Never expose the origin ports or add an untrusted header-rewriting
+proxy/Worker. Existing operator bearer credentials remain valid for diagnostics.
 
-Sessions: only type 1 creates a session. Initial input may contain the entry-code
-selection and does not select a menu option. Type 2 advances the stored session.
-Missing/expired type 2 sessions receive a redial message and FreeFlow: FB. Mobile number
-is bound to the session; local/international formats normalize to one identity.
-Initial and terminal identical callbacks replay their responses. Active menu
-answers advance state even when consecutive answers are identical (e.g. 1 then 1).
-Without a request sequence ID, a fresh answer and a network retry cannot always be
-distinguished. Payment confirmation is explicit and differs from a repeated
-one-digit amount (amount 1 requires 2 Confirm); durable LMS idempotency and pending
-collection checks protect collection retries. A late type 1
-after navigation returns 409. State is memory-only, expires after five minutes,
-and is lost on process restart. IDs must be unique per dial. Delayed/out-of-order
-retries cannot be fully distinguished without an operator request sequence number;
-confirm retry ordering before enabling financial actions on this GET flow.
+Responses: text/plain; charset=utf-8, Cache-Control no-store.
+Bodies contain customer text only. No CON/END text is displayed.
+FreeFlow: FC continues and accepts input; FreeFlow: FB ends the session.
+Menus, Back/Main and menu refreshes use FC; terminal and error responses use FB.
+Example body:
+  Welcome to MightyFin
+  1 Apply for a loan
+  2 Repay a loan
+  3 Get assistance
+  4 Payment status
+  0 Exit
 
-The live GET flow greets a caller using the uniquely matched LMS account's first
-name through the authenticated private /v1/welcome endpoint. Missing, ambiguous or
-unavailable identity lookup uses generic Welcome. No NRC, account ID, balance or
-other profile attributes are returned by this endpoint. Numbers are normalized.
-The welcome lookup is allowed independently of financial clearing readiness.
+A name is used only from a uniquely matched existing LMS user record. Entering a
+name as lead information does not authenticate or create an account. Unknown names
+use Welcome to MightyFin. Existing borrowers see repayment first; an existing
+application offers continuation assistance instead of another application.
+* Previous and # Main are navigation commands. Numerical options are selectable.
 
-Live menu: 1 Loan products, 3 Make payment, 4 Payment status, 0 Exit. Products are numbered and selectable, three per
-page; 4 More and 5 Previous page appear when needed. Product screens are informational
-and do not represent loan eligibility or create applications. * returns to the
-previous menu, # opens Main. These characters must be URL-encoded in GET parameters
-(in particular # as %23). Progressive lead capture is enabled: an enquiry is saved in the existing LMS Leads
-module with source USSD, without account registration, PIN, OTP or completed KYC.
-It remains a lead for later staff qualification/conversion; it is not credit approval.
-Main menu is Apply/Continue enquiry, Repay, Get assistance and Payment status.
-Borrowers see repayment first; existing applications use the continuation/assistance
-route. Partial lead progress and follow-up requests share a durable LEAD reference.
-Private lead requests use separate leads:ussd credentials. See USSD-LEADS.txt.
-Payment menus reuse the private USSD adapter and deployed LMS CollectionService,
-CollectionGateway and CollectionRepaymentPoster. The same caller-number ownership
-checks, Lipila mobile-money integration, durable idempotency, verified callbacks
-and ledger posting are used. No provider branding is shown on customer screens.
-Flow: 3 -> own loan -> amount -> explicit confirmation -> wallet-provider prompt.
-The wallet PIN is entered in the separate provider prompt, never in this callback.
-4 selects an own loan with this channel's history and verifies the latest payment.
-* returns one payment step; # leaves the flow for Main; 0 cancels before initiation.
-Terminal confirmations replay their response; timeout after initiation is reported
-as processing, never as definitive failure.
-Configuration block observed on 12 November: provider configured; payment type
-lipila_mobile_money has no active GL clearing mapping. New collections remain
-blocked until the intended ledger mapping is provided. No live debit was tested. GET and POST session state remains isolated.
+Lead capture: consent -> existing/new real LMS lead -> active product -> requested
+amount (or officer to advise) -> optional name -> confirmed follow-up. Source USSD,
+status new, qualification pending, stable LEAD reference. Validated partial details
+survive new sessions and gateway restarts. Existing open leads are reused; another
+channel's source and qualified staff data are preserved. Lead capture creates no
+user, PIN, OTP, wallet, credit approval or automatic conversion. See USSD-LEADS.txt.
+Normal LMS registration/authentication/application completion rules are unchanged.
 
-Test dialling code supplied by Hobbiton: *488*29#
+Repay: confirm caller's registered name (if available) and phone; 1 Confirm or
+2 Enter phone number. An entered payment number is normalized and confirmed before
+continuing. It selects the funding wallet. The borrower remains the trusted caller;
+entering a number cannot reveal that number owner's private loan records.
+The public flow does not implement arbitrary borrower-account lookup by typed phone.
 
-Hobbiton renders the body verbatim. GET bodies contain menu text only, without
-CON/END prefixes, including cached replies and errors. Internal terminal session
-state is retained. Per Hobbiton's 12 November specification, responses include:
-  FreeFlow: FC  continue the session and accept the next answer
-  FreeFlow: FB  close the session
-Menus and cached menu replies use FC. Exit, expired sessions, terminal messages,
-and errors use FB. The header is set before writing the HTTP response. The retained
-POST contract below uses its existing CON/END format.
+After confirming the funding number, read the caller's loans from LMS. Use the
+existing LoanAccountStateService for amounts due/outstanding; include only eligible
+ZMW loans with positive outstanding balance and amount due. Zero/settled balances
+are excluded even if legacy status is active. No match/no amounts due displays:
+  You have no pending loan to pay back.
+An ambiguous identity or service failure shows an assistance/unavailable response,
+never a definitive no-loans message. Listing loans does not require a payment GL map.
+Loan selections are numbered, three per page; 4 More and 5 Previous page appear as
+needed. Up to 30 payable loans/history entries are supported; unusually large
+accounts require assistance. Status history can include closed loans.
 
-Full GET response example:
-HTTP/1.1 200 OK
-Content-Type: text/plain; charset=utf-8
-Cache-Control: no-store
-FreeFlow: FC
+Select loan -> amount -> confirm selected loan, amount and funding number.
+The private collection adapter rechecks ownership and the LMS outstanding balance
+before new initiation. Amounts exceeding the remaining balance or newly cleared
+dues return a balance-changed message without submitting a fresh collection.
+The original borrower is used for ownership checks and the selected payer_phone for
+the provider prompt. Use the existing LMS CollectionService/Gateway/RepaymentPoster;
+provider/method is internally lipila/mobile_money. Customer wording is MightyFin.
+After acceptance:
+  Please wait for the payment prompt.
+The response closes USSD with FB. Wallet PIN is entered only in the trusted mobile-
+money provider prompt. Initiation remains pending/unknown until provider verification
+and ledger posting; status never treats acknowledgement as paid. No provider brand
+or wallet PIN field is shown by this USSD application.
 
-Welcome
-Mighty Finance
-1 Loan products
-0 Exit
+Session controls: five-minute in-memory session; caller, protocol and authorization
+context are bound. Re-entry is a new session; saved lead data and LMS financial
+records persist. Initial/terminal duplicates replay. Active repeated digits can
+represent a real next answer (1 then 1); without a gateway sequence ID, all network
+retries cannot be distinguished from new answers. Financial confirmation differs
+from a repeated one-digit amount; stable LMS keys and unresolved-collection guards
+prevent duplicate prompts/postings. Keys include borrower, loan, amount and funding
+phone. A timeout after initiation is processing, not proof of failure. Do not clear
+pending records or create another attempt to work around uncertainty.
 
-Termination response:
-HTTP/1.1 200 OK
-Content-Type: text/plain; charset=utf-8
-Cache-Control: no-store
-FreeFlow: FB
+Private endpoints, loopback 28094:
+  /v1/leads: leads:ussd credential (separate 90-day key)
+  /v1/welcome,/v1/loans,/v1/status-loans,/v1/collect,/v1/status: payments:ussd
+  phone is the borrower; optional payer_phone is funding-only for collect.
+Never send these credentials to handsets. Do not log query strings, numbers, input
+contents, provider PINs or service keys. Cloudflare/operator query retention must be
+considered because GET carries contact/name inputs. The normalized funding phone is
+kept in the short-lived session for confirmation and initiation, not in gateway logs.
 
-Thank you for choosing Mighty Finance.
+Callback deadline four seconds including session-lock wait. Caddy upstream timeout
+six seconds. Errors use 400/401/404/409/413/414/415/503 as appropriate. Non-200 is not a
+financial outcome. Operators must still confirm network timeout, retry ordering,
+session lifetime, screen budgets and wallet-prompt ordering. Bodies target 160 GSM
+units. Tested client User-Agent: MightyFinance-USSD-Pilot/1.0.
 
-Hobbiton confirmed successful end-to-end callback tests and requested removal of
-the visible CON/END prefixes on 11 November 2026.
-Accepted examples include INPUT, MSISDN, RequestType and SESSION_ID. Duplicate
-fields, including aliases differing only in case, are rejected.
-Hobbiton must still confirm networks,
-timeouts, retry ordering/rules, session lifetime, screen limits and wallet prompt.
-A local simulated ingress test is not a test from Hobbiton's actual source IP.
+Observed remaining collection configuration: Lipila provider configured; no active
+lipila_mobile_money payment type linked to an asset GL clearing account. New payment
+initiation stays blocked until the intended account mapping is provided. No real
+wallet debit/prompt is proven by unit tests or read-only public deployment checks.
 
 The following is the retained POST contract, not the Hobbiton GET specification.
 ------------------------------------------------------------------------

@@ -290,7 +290,7 @@ func TestHobbitonLiveCollectionIntegration(t *testing.T) {
 		f := &fakePayments{status: "pending"}
 		s := &Server{Key: testKey, Payments: f, Reader: &fakeReader{}}
 		for _, step := range []struct{ input, kind, want string }{
-			{"29", "1", "3 Make payment"}, {"3", "2", "Select loan"}, {"1", "2", "Enter payment amount"},
+			{"29", "1", "3 Make payment"}, {"3", "2", "Payment number"}, {"1", "2", "Select loan"}, {"1", "2", "Enter payment amount"},
 			{amount, "2", "Confirm"},
 		} {
 			w := hobby(s, "collection", "0762167007", step.input, step.kind)
@@ -304,7 +304,7 @@ func TestHobbitonLiveCollectionIntegration(t *testing.T) {
 		}
 		for i := 0; i < 2; i++ {
 			w := hobby(s, "collection", "0762167007", confirm, "2")
-			if w.Code != 200 || w.Header().Get("FreeFlow") != "FB" || !strings.Contains(w.Body.String(), "mobile-money prompt") || strings.Contains(strings.ToLower(w.Body.String()), "lipila") {
+			if w.Code != 200 || w.Header().Get("FreeFlow") != "FB" || !strings.Contains(w.Body.String(), "payment prompt") || strings.Contains(strings.ToLower(w.Body.String()), "lipila") {
 				t.Fatal(w.Code, w.Body.String())
 			}
 		}

@@ -92,6 +92,9 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 	if strings.HasPrefix(current.last, "lead-") || current.last == "assistance-consent" {
 		return s.leadMenu(ctx, current, phone, input)
 	}
+	if strings.HasPrefix(current.last, "payment-contact") {
+		return s.paymentContact(ctx, current, phone, input)
+	}
 	if input == "0" {
 		if current.last == "payment" {
 			return "END Payment cancelled. No new request was submitted."
@@ -141,9 +144,15 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 			}
 		}
 		if s.Payments != nil && (input == "3" || input == "4") {
-			current.last = "payment"
 			current.hobbyPaymentPath = input
-			return paymentNavigation(s.paymentScreen(ctx, current, input, phone, current.hobbySessionID))
+			current.payPage = 0
+			if input == "3" {
+				current.last = "payment-contact"
+				current.hobbyPayerPhone = phone
+				return paymentContactScreen(current, phone)
+			}
+			current.last = "payment"
+			return s.hobbitonLoanScreen(ctx, current, phone)
 		}
 		if input != "1" {
 			return "CON Please choose an option from the menu.\n# Main"
@@ -193,8 +202,27 @@ func paymentNavigation(text string) string {
 }
 func (s *Server) hobbitonPayment(ctx context.Context, current *session, phone, input string) string {
 	parts := strings.Split(current.hobbyPaymentPath, "*")
+	if len(parts) == 1 && input != "*" {
+		start := current.payPage * 3
+		if input == "4" && start+3 < len(current.payLoans) {
+			current.payPage++
+			return repaymentLoanList(current)
+		}
+		if input == "5" && start > 0 {
+			current.payPage--
+			return repaymentLoanList(current)
+		}
+		if len(input) != 1 || input[0] < '1' || input[0] > '3' || start+int(input[0]-'1') >= len(current.payLoans) {
+			return repaymentLoanList(current)
+		}
+		input = fmt.Sprint(start + int(input[0]-'0'))
+	}
 	if input == "*" {
 		if len(parts) == 1 {
+			if current.hobbyPaymentPath == "3" && current.hobbyPayerPhone != "" {
+				current.last = "payment-contact"
+				return paymentContactScreen(current, phone)
+			}
 			current.last = "home"
 			current.hobbyPaymentPath = ""
 			return hobbyHome(current)
@@ -214,10 +242,10 @@ func (s *Server) hobbitonPayment(ctx context.Context, current *session, phone, i
 		}
 		current.hobbyPaymentPath += "*" + input
 	}
-	response := s.paymentScreen(ctx, current, current.hobbyPaymentPath, phone, current.hobbySessionID)
+	response := s.hobbitonLoanScreen(ctx, current, phone)
 	parts = strings.Split(current.hobbyPaymentPath, "*")
 	if len(parts) == 3 && parts[0] == "3" && parts[2] == "1" {
 		response = strings.Replace(response, "1 Confirm", "2 Confirm", 1)
 	}
-	return paymentNavigation(response)
+	return response
 }
