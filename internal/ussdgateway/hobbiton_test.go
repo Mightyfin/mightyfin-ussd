@@ -203,7 +203,7 @@ func TestHobbitonParameterCasingAndEntrySelection(t *testing.T) {
 
 func TestHobbitonPlainBodyAndInternalTermination(t *testing.T) {
 	s := &Server{Key: testKey, Reader: &fakeReader{}}
-	if w := hobby(s, "plain", "0762167007", "29", "1"); w.Body.String() != "Welcome\nMightyFin\n1 Loan products\n0 Exit" {
+	if w := hobby(s, "plain", "0762167007", "29", "1"); w.Body.String() != "Welcome to MightyFin\n1 Loan products\n0 Exit" {
 		t.Fatal(w.Body.String())
 	}
 	for i := 0; i < 2; i++ {
@@ -338,5 +338,16 @@ func TestHobbitonPaymentStatusUsesLms(t *testing.T) {
 	w = hobby(s, "receipt", "0762167007", "1", "2")
 	if w.Header().Get("FreeFlow") != "FB" || !strings.Contains(w.Body.String(), "confirmed and recorded") || f.calls != 0 {
 		t.Fatal(w.Body.String(), f.calls)
+	}
+}
+
+func TestHobbitonGreetingOnlyUsesRegisteredName(t *testing.T) {
+	for _, tt := range []struct{ name, want string }{{"George", "Welcome George"}, {"", "Welcome to MightyFin"}, {"  ", "Welcome to MightyFin"}} {
+		s := &Server{Key: testKey, Payments: &namedPayments{name: tt.name}, Reader: &fakeReader{}}
+		w := hobby(s, "greeting", "0762167007", "29", "1")
+		first := strings.SplitN(w.Body.String(), "\n", 2)[0]
+		if first != tt.want {
+			t.Fatal(first, tt.want)
+		}
 	}
 }

@@ -19,7 +19,7 @@ func welcomeName(name string) string {
 	return strings.TrimSpace(b.String())
 }
 func hobbyHome(current *session) string {
-	text := "CON " + current.hobbyWelcome + "\nMightyFin\n1 Loan products"
+	text := "CON " + current.hobbyWelcome + "\n1 Loan products"
 	if current.hobbyHasPayments {
 		text += "\n3 Make payment\n4 Payment status"
 	}
@@ -45,14 +45,14 @@ func hobbyCatalogue(current *session) string {
 }
 func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, input string) string {
 	if current.last == "" {
-		current.hobbyWelcome = "Welcome"
+		current.hobbyWelcome = "Welcome to MightyFin"
 		current.hobbyHasPayments = s.Payments != nil
 		if reader, ok := s.Payments.(interface {
 			Welcome(context.Context, string) (string, error)
 		}); ok {
 			if name, err := reader.Welcome(ctx, phone); err == nil {
 				if name = welcomeName(name); name != "" {
-					current.hobbyWelcome += " " + name
+					current.hobbyWelcome = "Welcome " + name
 				}
 			}
 		}
