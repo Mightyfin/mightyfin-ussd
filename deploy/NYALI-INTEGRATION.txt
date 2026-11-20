@@ -1,0 +1,93 @@
+Nyali repayment adapter — 20 November 2026
+
+Public callback: https://ussd.mightyfinance.co.zm/ussd
+Code: *488*29#
+Nyali: https://mightyfin.cloud/public/api/partner
+Outbound server IPv4 to share with Daniel: 187.124.27.67
+Hobbiton inbound gateway IPv4 remains 41.175.8.68 (different direction).
+
+Sources of truth
+- Progressive leads/products/assistance: existing local Admin LMS.
+- Loan ownership, balances, mobile-money collection and repayment posting: Nyali.
+- No customer PIN/OTP for lead capture. Borrower lookup is bound to the trusted
+  gateway caller and exactly one returned customer with the same normalized mobile.
+- Confirm caller wallet or enter a different payer wallet. That changes only the
+  source of the provider prompt; it does not unlock the entered number's loans.
+- Only disbursed loans with positive outstanding balances can be paid. Amounts are
+  exact decimal ZMW, not floating-point. A fresh ownership/balance check precedes
+  initiation. Reject an amount above the latest outstanding balance.
+- Explicit loan selection uses /loans/{id}/collect, not automatic reallocation.
+- Payment PIN belongs to the mobile-money provider. No Lipila/Nyali brand appears
+  on customer screens. Provider success is displayed as completed only when posted.
+
+Configuration (secrets are files, never committed)
+USSD_REPAYMENT_BACKEND=nyali
+USSD_NYALI_TOKEN_FILE=/home/mightyfin/.config/mightyfin/ussd-gateway/nyali.key
+USSD_NYALI_JOURNAL_KEY_FILE=/home/mightyfin/.config/mightyfin/ussd-gateway/nyali-journal.key
+USSD_NYALI_JOURNAL_FILE=/home/mightyfin/.local/share/mightyfin-ussd-nyali/payments.enc
+
+Token and raw 32-byte journal encryption key require private regular files (0600).
+Journal directory is 0700, snapshot/lock 0600. One process holds an exclusive kernel
+lock. AES-GCM snapshots are atomically replaced and fsynced. Keep the key and journal
+in a controlled encrypted backup; losing either destroys local recovery evidence.
+Do not reset/delete the journal to resolve a pending payment or rotate its encryption
+key without an explicit migration. Do not run two gateway instances against it.
+
+Operations
+The user systemd service is mightyfin-ussd-gateway.service on loopback 28093.
+Caddy/tunnel and private local LMS lead sidecar remain as previously configured.
+The credential is read at startup. To rotate it, arrange a new Nyali token, replace
+the private token file and restart the service. Preserve journal and key. Confirm
+old payments remain visible with a rotated token before revoking the old token.
+Health /healthz reports repayment_backend=nyali and financial_actions_enabled when
+the journal is healthy and not temporarily paused. This is configuration/process
+readiness, not proof of provider funding, network prompt or successful debit.
+
+Before any provider call, persist a stable USSD-<64 hex> external_reference plus
+loan, amount, caller hash and payer. Duplicate commands return the same operation.
+Any unresolved operation blocks a fresh collection for that loan. Unknown outcomes
+stay reserved after timeout/restart; no background collection POST is performed.
+A definitively rejected request may be tried again through a new customer session.
+No success claim is made for an acknowledgement or missing list result.
+
+Reconciliation batches GET /payments by creation date every 15 seconds, rotating
+oldest-checked dates fairly. Near midnight CAT it reads adjacent dates too. Match
+external_reference, loan, provider reference, payer, amount and currency. Duplicate
+or mismatched evidence cannot complete the attempt. Successful/posted is terminal;
+late pending/failure cannot regress it. Successful/unposted remains pending posting.
+An aged unresolved attempt (>3 minutes) produces an operational follow-up log;
+this is not an automatically assigned case/SLA. Use restricted journalctl output:
+  journalctl --user -u mightyfin-ussd-gateway.service --since today
+Customer Payment status reads the same durable operation; closed loans with a
+journaled collection remain accessible after current customer ownership is checked.
+
+Client rate budget: at most one request starts per 1050 ms (below 60/minute), shared
+across lookup, collect and reconciliation. Initial greeting/payable lookup share
+one request-scoped result. HTTP 429 respects Retry-After (60 seconds default).
+Callbacks have a four-second budget: heavy concurrent traffic returns a safe
+unavailable/pending response instead of bypassing the rate limit. Scaling requires
+a higher Nyali quota and shared durable coordination, not extra standalone instances.
+
+Pending partner dependencies and product limitations
+- Nyali lists at most 500 payments with no documented pagination or direct reference
+  lookup. Ask Daniel for an exact-reference status endpoint or pagination and token
+  rotation/history guarantees. An absent/capped result remains unresolved, never
+  failed; operations must reconcile it with Nyali using the original full reference.
+- No real collection was run during this deployment. A controlled wallet test with
+  an explicitly agreed phone/amount is still needed to verify prompt delivery,
+  authorisation, posting and the handset experience.
+- Result SMS notifications are not implemented in this adapter. Payment status is
+  available on USSD. Nyali/provider messaging is not assumed to provide our receipt.
+- The gateway journal records USSD-originated attempts; this is not a consolidated
+  local Admin LMS collections dashboard. Nyali exposes token collections via
+  /payments and remains responsible for provider reconciliation and posting.
+- No bank collection, USSD payouts, account linking by NRC, automatic credit approval,
+  or borrower lookup using an arbitrary typed phone is added by this change.
+
+Verification
+Go tests cover API shapes, exact decimals, authorization, redirect refusal, rate
+backoff, confirmation/payer separation, ownership, duplicate collection protection,
+encrypted journal restart/locking, provider mismatch, timeout, closed-loan history,
+unposted success and finality. All collection POST tests use local fixtures.
+Production checks are authenticated read-only payment lists and customer verify,
+plus callback/FreeFlow/header/health checks. They create no leads and no debit.

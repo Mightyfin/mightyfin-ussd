@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Mightyfin/mightyfin-ussd/internal/nyali"
 	"github.com/Mightyfin/mightyfin-ussd/internal/ussdgateway"
 )
 
@@ -34,6 +35,16 @@ func keyFile(path string) (string, error) {
 	return key, nil
 }
 
+func privateFile(path string) ([]byte, error) {
+	info, e := os.Lstat(path)
+	if e != nil {
+		return nil, e
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return nil, errors.New("private regular configuration file required")
+	}
+	return os.ReadFile(path)
+}
 func run() error {
 	operatorKey, err := keyFile(os.Getenv("USSD_GATEWAY_KEY_FILE"))
 	if err != nil {
@@ -66,9 +77,47 @@ func run() error {
 		}
 		handler.Leads = &ussdgateway.LeadClient{PaymentClient: ussdgateway.PaymentClient{Key: key, HTTP: client}}
 	}
+	var nyaliService *ussdgateway.NyaliPayments
+	switch os.Getenv("USSD_REPAYMENT_BACKEND") {
+	case "", "local-lms":
+	case "nyali":
+		token, e := privateFile(os.Getenv("USSD_NYALI_TOKEN_FILE"))
+		if e != nil {
+			return e
+		}
+		api, e := nyali.New(strings.TrimSpace(string(token)), client)
+		if e != nil {
+			return e
+		}
+		secret, e := privateFile(os.Getenv("USSD_NYALI_JOURNAL_KEY_FILE"))
+		if e != nil {
+			return e
+		}
+		path := os.Getenv("USSD_NYALI_JOURNAL_FILE")
+		if path == "" {
+			return errors.New("Nyali journal path required")
+		}
+		store, e := nyali.OpenStore(path, secret)
+		if e != nil {
+			return e
+		}
+		defer store.Close()
+		nyaliService = &ussdgateway.NyaliPayments{Client: api, Store: store}
+		if fallback, ok := handler.Payments.(interface {
+			Welcome(context.Context, string) (string, error)
+		}); ok {
+			nyaliService.Fallback = fallback
+		}
+		handler.Payments = nyaliService
+	default:
+		return errors.New("unsupported repayment backend")
+	}
 	server := &http.Server{Addr: "127.0.0.1:28093", Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 6 * time.Second, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 8192}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if nyaliService != nil {
+		go nyaliService.Run(ctx)
+	}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 6*time.Second)

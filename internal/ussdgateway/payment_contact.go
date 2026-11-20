@@ -67,7 +67,13 @@ func repaymentLoanList(c *session) string {
 		loan := c.payLoans[i]
 		text += "\n" + strconv.Itoa(i-c.payPage*3+1) + " ..." + maskedLoan(loan.ID)
 		if amount, ok := amountString(loan.Due); ok {
-			text += " Due K" + amount
+			label := "Due"
+			if loan.DueLabel == "Next" {
+				label = "Next"
+			}
+			text += " " + label + " K" + amount
+		} else if amount, ok := amountString(loan.Outstanding); ok {
+			text += " Bal K" + amount
 		}
 	}
 	if (c.payPage+1)*3 < len(c.payLoans) {
@@ -81,7 +87,13 @@ func repaymentLoanList(c *session) string {
 func (s *Server) hobbitonLoanScreen(ctx context.Context, c *session, caller string) string {
 	if !strings.Contains(c.hobbyPaymentPath, "*") {
 		loans, err := s.Payments.Loans(ctx, caller, c.hobbyPaymentPath == "4")
-		if err != nil || len(loans) > 30 {
+		if err != nil {
+			if safe, ok := err.(interface{ CustomerText() string }); ok {
+				return "END " + safe.CustomerText()
+			}
+			return "END Payment options are unavailable. Please contact your loan officer."
+		}
+		if len(loans) > 30 {
 			return "END Payment options are unavailable. Please contact your loan officer."
 		}
 		if len(loans) == 0 {

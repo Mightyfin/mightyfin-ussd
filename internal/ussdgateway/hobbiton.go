@@ -108,6 +108,7 @@ func (s *Server) serveHobbiton(w http.ResponseWriter, r *http.Request) {
 	id = "hobbiton:" + id
 	binding := sha256.Sum256([]byte(phone))
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
+	ctx = nyaliRequestContext(ctx)
 	defer cancel()
 	s.mu.Lock()
 	if s.sessions == nil {

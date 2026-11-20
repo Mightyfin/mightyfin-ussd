@@ -75,6 +75,13 @@ func (s *Server) hobbitonMenu(ctx context.Context, current *session, phone, inpu
 				}
 			}
 		}
+		if source, ok := s.Payments.(interface {
+			HasPayable(context.Context, string) (bool, error)
+		}); ok {
+			if has, e := source.HasPayable(ctx, phone); e == nil {
+				current.leadRecord.HasLoan = has
+			}
+		}
 		current.last = "home"
 		return hobbyHome(current)
 	}

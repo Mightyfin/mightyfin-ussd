@@ -1,4 +1,4 @@
-Hobbiton GET callback — current deployed contract, 12 November 2026
+Hobbiton GET callback — current deployed contract, 20 November 2026
 
 Dialling code: *488*29#
 Callback: https://ussd.mightyfinance.co.zm/ussd
@@ -32,7 +32,7 @@ Example body:
   4 Payment status
   0 Exit
 
-A name is used only from a uniquely matched existing LMS user record. Entering a
+A name is used only from a uniquely matched Nyali customer or existing local LMS user. Entering a
 name as lead information does not authenticate or create an account. Unknown names
 use Welcome to MightyFin. Existing borrowers see repayment first; an existing
 application offers continuation assistance instead of another application.
@@ -52,42 +52,48 @@ continuing. It selects the funding wallet. The borrower remains the trusted call
 entering a number cannot reveal that number owner's private loan records.
 The public flow does not implement arbitrary borrower-account lookup by typed phone.
 
-After confirming the funding number, read the caller's loans from LMS. Use the
-existing LoanAccountStateService for amounts due/outstanding; include only eligible
-ZMW loans with positive outstanding balance and amount due. Zero/settled balances
-are excluded even if legacy status is active. No match/no amounts due displays:
+After confirming the funding number, read the caller's Nyali loans. Match exactly
+one customer whose returned mobile matches the trusted caller; ambiguous, mismatched
+or missing identities route to assistance. Include disbursed loans with a positive
+outstanding balance. Show arrears as Due, otherwise the next instalment as Next,
+or the outstanding balance. Pending/approved/reviewed and settled loans are excluded.
+A matched customer with no payable loans sees:
   You have no pending loan to pay back.
-An ambiguous identity or service failure shows an assistance/unavailable response,
-never a definitive no-loans message. Listing loans does not require a payment GL map.
+Unknown account and service outage are not represented as a settled loan.
 Loan selections are numbered, three per page; 4 More and 5 Previous page appear as
 needed. Up to 30 payable loans/history entries are supported; unusually large
-accounts require assistance. Status history can include closed loans.
+accounts require assistance. Status history includes this gateway's journaled
+collections, even after the selected loan closes.
 
 Select loan -> amount -> confirm selected loan, amount and funding number.
-The private collection adapter rechecks ownership and the LMS outstanding balance
-before new initiation. Amounts exceeding the remaining balance or newly cleared
-dues return a balance-changed message without submitting a fresh collection.
-The original borrower is used for ownership checks and the selected payer_phone for
-the provider prompt. Use the existing LMS CollectionService/Gateway/RepaymentPoster;
-provider/method is internally lipila/mobile_money. Customer wording is MightyFin.
+Fresh ownership and balance checks precede initiation. The gateway persists an
+encrypted intent and stable external_reference before POST /loans/{id}/collect.
+The selected loan is explicit, not reassigned using the allocation endpoint.
+Nyali initiates mobile money and posts the repayment in its own LMS. This gateway
+never also posts the same repayment into the local Admin LMS ledger. Payer number
+selects the funding wallet; it cannot select a different borrower's loan account.
 After acceptance:
   Please wait for the payment prompt.
-The response closes USSD with FB. Wallet PIN is entered only in the trusted mobile-
-money provider prompt. Initiation remains pending/unknown until provider verification
-and ledger posting; status never treats acknowledgement as paid. No provider brand
-or wallet PIN field is shown by this USSD application.
+  Ref USSD-...
+USSD closes with FB. Wallet PIN is entered only in the trusted mobile-money prompt;
+no provider brand or wallet PIN field is shown by this application. Pending, Unknown
+and Submitting block another attempt for the loan across sessions/restarts. Only
+Successful plus posted=true is completed. Successful/unposted is account update
+pending. Status reads/reconciliation never initiate a fresh collection.
+See ../NYALI-INTEGRATION.txt for deployment, rate limits and remaining contract gaps.
 
 Session controls: five-minute in-memory session; caller, protocol and authorization
 context are bound. Re-entry is a new session; saved lead data and LMS financial
 records persist. Initial/terminal duplicates replay. Active repeated digits can
 represent a real next answer (1 then 1); without a gateway sequence ID, all network
 retries cannot be distinguished from new answers. Financial confirmation differs
-from a repeated one-digit amount; stable LMS keys and unresolved-collection guards
+from a repeated one-digit amount; stable financial keys and unresolved-collection guards
 prevent duplicate prompts/postings. Keys include borrower, loan, amount and funding
 phone. A timeout after initiation is processing, not proof of failure. Do not clear
 pending records or create another attempt to work around uncertainty.
 
-Private endpoints, loopback 28094:
+Private local LMS endpoints, loopback 28094 (payment routes are retained for the
+local-lms backend; the active Nyali backend uses only lead routes and greeting fallback):
   /v1/leads: leads:ussd credential (separate 90-day key)
   /v1/welcome,/v1/loans,/v1/status-loans,/v1/collect,/v1/status: payments:ussd
   phone is the borrower; optional payer_phone is funding-only for collect.
@@ -102,10 +108,10 @@ financial outcome. Operators must still confirm network timeout, retry ordering,
 session lifetime, screen budgets and wallet-prompt ordering. Bodies target 160 GSM
 units. Tested client User-Agent: MightyFinance-USSD-Pilot/1.0.
 
-Observed remaining collection configuration: Lipila provider configured; no active
-lipila_mobile_money payment type linked to an asset GL clearing account. New payment
-initiation stays blocked until the intended account mapping is provided. No real
-wallet debit/prompt is proven by unit tests or read-only public deployment checks.
+The earlier local-LMS collection adapter still requires its asset GL mapping if
+reactivated. Nyali collections do not depend on that local mapping. No real wallet
+debit/prompt is proven by unit tests or read-only deployment checks. Result SMS is
+not automatically sent by the Nyali adapter; customers can use Payment status.
 
 The following is the retained POST contract, not the Hobbiton GET specification.
 ------------------------------------------------------------------------

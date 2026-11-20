@@ -1,5 +1,5 @@
 // Package ussdgateway implements Mighty Finance's proposed operator callback v1.
-// It is independent of the demo and never authorizes a customer by phone number.
+// It is independent of the demo; live caller matching requires the trusted gateway path.
 package ussdgateway
 
 import (
@@ -81,13 +81,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			mode = "progressive-lead-capture"
 			hobbitonMode = "progressive-leads"
 		}
+		backend := "local-lms"
+		if p, ok := s.Payments.(interface{ BackendName() string }); ok {
+			backend = p.BackendName()
+		}
 		ready := false
 		if p, ok := s.Payments.(interface{ Ready(context.Context) bool }); ok {
 			ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 			ready = p.Ready(ctx)
 			cancel()
 		}
-		b, _ := json.Marshal(map[string]any{"status": "ok", "service": "ussd-gateway", "callback_ready": true, "contract": "mightyfin-v1-proposed", "hobbiton_get_ready": true, "hobbiton_get_mode": hobbitonMode, "mode": mode, "customer_onboarding_ready": false, "lead_capture_enabled": s.Leads != nil, "payment_menu_enabled": s.Payments != nil, "financial_actions_enabled": ready})
+		b, _ := json.Marshal(map[string]any{"status": "ok", "service": "ussd-gateway", "callback_ready": true, "contract": "mightyfin-v1-proposed", "hobbiton_get_ready": true, "hobbiton_get_mode": hobbitonMode, "mode": mode, "customer_onboarding_ready": false, "lead_capture_enabled": s.Leads != nil, "payment_menu_enabled": s.Payments != nil, "financial_actions_enabled": ready, "repayment_backend": backend})
 		output(w, 200, string(b))
 		return
 	}

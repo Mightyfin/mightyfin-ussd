@@ -1,8 +1,13 @@
 # MightyFin USSD app
 
-Status: **Live Hobbiton callback with progressive LMS lead capture, assistance,
-LMS-backed greetings and collection menus.** Real collection activation still needs
-the designated GL mapping and payment handset verification.
+Status: **Live Hobbiton callback with progressive Admin LMS lead capture and Nyali
+loan lookup/collections.** Nyali owns its loan balances, mobile-money initiation and
+repayment posting. A real wallet-prompt/debit test remains outstanding; automated
+collection tests use fixtures and authenticated production checks are read-only.
+
+See [Nyali deployment and reconciliation](deploy/NYALI-INTEGRATION.txt). The Nyali
+adapter is selected explicitly by environment; the earlier local LMS adapter remains
+available separately and is not used to post Nyali repayments.
 
 Dial *488*29#. Prospects can record a USSD-sourced lead without an account, PIN or
 OTP, save partial details and continue later with the same reference. Loan officers

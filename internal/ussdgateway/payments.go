@@ -17,6 +17,7 @@ import (
 type PayLoan struct {
 	ID          int64  `json:"id"`
 	Label       string `json:"label"`
+	DueLabel    string `json:"due_label"`
 	Due         string `json:"due"`
 	Outstanding string `json:"outstanding"`
 }
@@ -120,6 +121,9 @@ func (s *Server) paymentScreen(ctx context.Context, session *session, text, phon
 		return "CON Enter payment amount in ZMW (for example 100.00).\n0 Cancel"
 	}
 	amount, ok := amountString(parts[2])
+	if parser, yes := s.Payments.(interface{ NormalizeAmount(string) (string, bool) }); yes {
+		amount, ok = parser.NormalizeAmount(parts[2])
+	}
 	if !ok {
 		return "END Invalid amount. Please enter a positive amount with up to 2 decimal places."
 	}
@@ -153,6 +157,14 @@ func (s *Server) paymentScreen(ctx context.Context, session *session, text, phon
 	if err != nil {
 		return "END Payment request is processing. Check payment status before retrying."
 	}
+	if refs, ok := s.Payments.(interface{ Reference(string, int64) string }); ok {
+		if ref := refs.Reference(phone, loan); ref != "" && (status == "pending" || status == "processing" || status == "existing_pending") {
+			if status == "pending" {
+				return "END Please wait for the payment prompt.\nRef " + ref
+			}
+			return "END Payment is being checked. Do not start another payment.\nRef " + ref
+		}
+	}
 	switch status {
 	case "balance_changed":
 		return "END Your loan balance changed. No new payment was requested. Please check your loan again."
@@ -160,6 +172,8 @@ func (s *Server) paymentScreen(ctx context.Context, session *session, text, phon
 		return "END Payments are temporarily unavailable. Please contact your loan officer."
 	case "pending":
 		return "END Please wait for the payment prompt."
+	case "posting_pending":
+		return "END Payment received. Your loan account update is pending. Please check again later."
 	case "completed":
 		return "END Payment confirmed and recorded. Thank you."
 	case "failed":
@@ -170,6 +184,8 @@ func (s *Server) paymentScreen(ctx context.Context, session *session, text, phon
 }
 func paymentStatus(status string) string {
 	switch status {
+	case "posting_pending":
+		return "END Payment received. Your loan account update is pending. Please check again later."
 	case "completed":
 		return "END Payment confirmed and recorded. Thank you."
 	case "failed":
