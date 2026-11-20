@@ -2,6 +2,7 @@ package ussdgateway
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -66,13 +67,13 @@ func repaymentLoanList(c *session) string {
 	for i := c.payPage * 3; i < len(c.payLoans) && i < c.payPage*3+3; i++ {
 		loan := c.payLoans[i]
 		text += "\n" + strconv.Itoa(i-c.payPage*3+1) + " ..." + maskedLoan(loan.ID)
-		if amount, ok := amountString(loan.Due); ok {
+		if amount, ok := paymentDisplayAmount(loan.Due); ok {
 			label := "Due"
 			if loan.DueLabel == "Next" {
 				label = "Next"
 			}
 			text += " " + label + " K" + amount
-		} else if amount, ok := amountString(loan.Outstanding); ok {
+		} else if amount, ok := paymentDisplayAmount(loan.Outstanding); ok {
 			text += " Bal K" + amount
 		}
 	}
@@ -112,4 +113,13 @@ func (s *Server) hobbitonLoanScreen(ctx context.Context, c *session, caller stri
 	}
 	text := s.paymentScreen(ctx, c, c.hobbyPaymentPath, caller, c.hobbySessionID)
 	return paymentNavigation(text)
+}
+
+// Balances supplied by Nyali can exceed the legacy local adapter's input limit.
+func paymentDisplayAmount(value string) (string, bool) {
+	n, ok := leadCents(value)
+	if !ok || n <= 0 {
+		return "", false
+	}
+	return fmt.Sprintf("%d.%02d", n/100, n%100), true
 }

@@ -15,7 +15,9 @@ Sources of truth
   source of the provider prompt; it does not unlock the entered number's loans.
 - Only disbursed loans with positive outstanding balances can be paid. Amounts are
   exact decimal ZMW, not floating-point. A fresh ownership/balance check precedes
-  initiation. Reject an amount above the latest outstanding balance.
+  initiation. Reject an amount above the latest outstanding balance. The handset shows its
+  maximum before entry; invalid or excessive inputs can be corrected on the same
+  step. A fresh balance check still protects final initiation.
 - Explicit loan selection uses /loans/{id}/collect, not automatic reallocation.
 - Payment PIN belongs to the mobile-money provider. No Lipila/Nyali brand appears
   on customer screens. Provider success is displayed as completed only when posted.
@@ -48,6 +50,8 @@ loan, amount, caller hash and payer. Duplicate commands return the same operatio
 Any unresolved operation blocks a fresh collection for that loan. Unknown outcomes
 stay reserved after timeout/restart; no background collection POST is performed.
 A definitively rejected request may be tried again through a new customer session.
+A retry of the same reference returns the original operation even after the loan
+settles. Conflicting payloads are rejected. A provider pause blocks new attempts.
 No success claim is made for an acknowledgement or missing list result.
 
 Reconciliation batches GET /payments by creation date every 15 seconds, rotating
@@ -73,9 +77,14 @@ Pending partner dependencies and product limitations
   lookup. Ask Daniel for an exact-reference status endpoint or pagination and token
   rotation/history guarantees. An absent/capped result remains unresolved, never
   failed; operations must reconcile it with Nyali using the original full reference.
-- No real collection was run during this deployment. A controlled wallet test with
-  an explicitly agreed phone/amount is still needed to verify prompt delivery,
-  authorisation, posting and the handset experience.
+- The user confirmed a direct K20 Lipila/Airtel Money prompt reached 0972827372.
+  That was a separately authorised standalone provider test, stopped at the user's
+  request, not a Nyali loan repayment. Nyali /loans/verify returned no customer for
+  that number in local/international/plus formats; /collections returned 404 no
+  matching client. Do not present this as end-to-end Nyali posting verification.
+  A real Nyali borrower with an outstanding loan is needed for a read-only handset
+  journey. A new approved debit is needed separately to verify Nyali posting.
+  Never silently fall back to a standalone provider charge when Nyali has no loan.
 - Result SMS notifications are not implemented in this adapter. Payment status is
   available on USSD. Nyali/provider messaging is not assumed to provide our receipt.
 - The gateway journal records USSD-originated attempts; this is not a consolidated
@@ -88,6 +97,8 @@ Verification
 Go tests cover API shapes, exact decimals, authorization, redirect refusal, rate
 backoff, confirmation/payer separation, ownership, duplicate collection protection,
 encrypted journal restart/locking, provider mismatch, timeout, closed-loan history,
-unposted success and finality. All collection POST tests use local fixtures.
+unposted success and finality. All automated collection POST tests use local fixtures. The HTTP contract test
+exercises the real Nyali client through handset confirmation, selected-loan POST,
+status query, unposted success, posted success and closed-loan receipt history.
 Production checks are authenticated read-only payment lists and customer verify,
 plus callback/FreeFlow/header/health checks. They create no leads and no debit.

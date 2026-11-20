@@ -65,7 +65,8 @@ needed. Up to 30 payable loans/history entries are supported; unusually large
 accounts require assistance. Status history includes this gateway's journaled
 collections, even after the selected loan closes.
 
-Select loan -> amount -> confirm selected loan, amount and funding number.
+Select loan -> amount (maximum balance shown) -> confirm selected loan, amount
+and funding number. Invalid/excessive amounts repeat the amount step for correction.
 Fresh ownership and balance checks precede initiation. The gateway persists an
 encrypted intent and stable external_reference before POST /loans/{id}/collect.
 The selected loan is explicit, not reassigned using the allocation endpoint.

@@ -218,6 +218,17 @@ func (p *NyaliPayments) CollectFrom(ctx context.Context, phone, payer string, id
 	if e != nil {
 		return "unavailable", nil
 	}
+	// A retry belongs to its original operation even after repayment closes the
+	// loan. Revalidate the customer, then compare all immutable intent fields.
+	if old, ok := p.Store.Lookup("USSD-" + key); ok {
+		if old.BorrowerHash != nyali.Caller(canonical) || old.ClientID != c.ID || old.LoanID != id || old.Payer != payer || old.Amount != a {
+			return "unavailable", nil
+		}
+		return nyaliStatus(old), nil
+	}
+	if !p.Ready(ctx) {
+		return "unavailable", nil
+	}
 	found := false
 	for _, l := range c.Loans {
 		if l.ID == id {

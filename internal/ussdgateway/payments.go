@@ -118,7 +118,7 @@ func (s *Server) paymentScreen(ctx context.Context, session *session, text, phon
 		return paymentStatus(status)
 	}
 	if len(parts) == 2 {
-		return "CON Enter payment amount in ZMW (for example 100.00).\n0 Cancel"
+		return repaymentAmountPrompt(session.payLoans[selected-1])
 	}
 	amount, ok := amountString(parts[2])
 	if parser, yes := s.Payments.(interface{ NormalizeAmount(string) (string, bool) }); yes {
@@ -317,4 +317,11 @@ func (p *PaymentClient) Welcome(c context.Context, phone string) (string, error)
 	}
 	e = json.Unmarshal(b, &result)
 	return result.FirstName, e
+}
+
+func repaymentAmountPrompt(loan PayLoan) string {
+	if balance, ok := paymentDisplayAmount(loan.Outstanding); ok {
+		return "CON Enter payment amount in ZMW.\nMaximum K" + balance + "\n0 Cancel"
+	}
+	return "CON Enter payment amount in ZMW (for example 100.00).\n0 Cancel"
 }

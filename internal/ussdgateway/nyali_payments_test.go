@@ -217,3 +217,49 @@ func TestNyaliRequestMemoAndUnknownCaller(t *testing.T) {
 		t.Fatal("outage caused duplicate lookup")
 	}
 }
+
+func TestNyaliReplayAfterLoanClosesAndPause(t *testing.T) {
+	p, api, _, _ := newNyaliFixture(t)
+	key := strings.Repeat("a", 64)
+	p.CollectFrom(context.Background(), "260970000001", "260970000002", 42, "25", key)
+	entry, _ := p.Store.Lookup("USSD-" + key)
+	entry.Status, entry.Posted = "Successful", true
+	if err := p.Store.Update(entry); err != nil {
+		t.Fatal(err)
+	}
+	api.customer.Loans = nil
+	status, err := p.CollectFrom(context.Background(), "260970000001", "260970000002", 42, "25", key)
+	if err != nil || status != "completed" || api.calls != 1 {
+		t.Fatal("completed retry lost after settlement", status, err, api.calls)
+	}
+	status, _ = p.CollectFrom(context.Background(), "260970000001", "260970000002", 42, "26", key)
+	if status != "unavailable" || api.calls != 1 {
+		t.Fatal("changed payload replay allowed", status, api.calls)
+	}
+	p.disabledUntil.Store(time.Now().Add(time.Minute).Unix())
+	api.customer.Loans = []nyali.Loan{{ID: 43, Status: "disbursed", Outstanding: nyali.Outstanding{Total: "1000"}}}
+	status, _ = p.CollectFrom(context.Background(), "260970000001", "260970000002", 43, "25", strings.Repeat("b", 64))
+	if status != "unavailable" || api.calls != 1 {
+		t.Fatal("provider pause bypassed", status, api.calls)
+	}
+}
+func TestNyaliAmountCorrectionAndCancel(t *testing.T) {
+	p, api, _, _ := newNyaliFixture(t)
+	s := &Server{Key: testKey, Payments: p, Leads: &testLeads{}, Reader: &fakeReader{}}
+	for _, step := range []struct{ answer, kind, want string }{
+		{"29", "1", "Welcome George"}, {"1", "2", "Payment number"}, {"1", "2", "Select loan"}, {"1", "2", "Maximum K1000.00"},
+		{"bad", "2", "positive amount"}, {"-1", "2", "positive amount"}, {"0.001", "2", "positive amount"}, {"1000.01", "2", "exceeds the loan balance"},
+		{"20", "2", "Pay ZMW 20.00"}, {"*", "2", "Maximum K1000.00"}, {"25", "2", "Pay ZMW 25.00"}, {"0", "2", "No new request was submitted"},
+	} {
+		w := hobby(s, "nyali-correct-amount", "0970000001", step.answer, step.kind)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), step.want) || phoneUnits(w.Body.String()) > 160 {
+			t.Fatal(step, w.Code, w.Body.String())
+		}
+	}
+	if api.calls != 0 || len(p.Store.Snapshot()) != 0 {
+		t.Fatal("correction or cancel initiated a charge")
+	}
+	if shown, ok := paymentDisplayAmount("10000000.01"); !ok || shown != "10000000.01" {
+		t.Fatal(shown, ok)
+	}
+}

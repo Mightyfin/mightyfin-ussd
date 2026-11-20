@@ -240,3 +240,11 @@ func (s *Store) Latest(caller string, loan int64) (Entry, bool) {
 	}
 	return Entry{}, false
 }
+
+// Lookup returns a previously reserved operation without changing its state.
+func (s *Store) Lookup(reference string) (Entry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[reference]
+	return entry, ok
+}

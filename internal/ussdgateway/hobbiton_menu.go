@@ -236,6 +236,25 @@ func (s *Server) hobbitonPayment(ctx context.Context, current *session, phone, i
 		}
 		current.hobbyPaymentPath = strings.Join(parts[:len(parts)-1], "*")
 	} else {
+		if len(parts) == 2 && parts[0] == "3" {
+			amount, valid := amountString(input)
+			if parser, ok := s.Payments.(interface{ NormalizeAmount(string) (string, bool) }); ok {
+				amount, valid = parser.NormalizeAmount(input)
+			}
+			selected := 0
+			fmt.Sscan(parts[1], &selected)
+			if selected < 1 || selected > len(current.payLoans) {
+				return "END Payment options are unavailable."
+			}
+			loan := current.payLoans[selected-1]
+			if !valid {
+				return paymentNavigation("CON Enter a positive amount with up to 2 decimal places.\n" + strings.TrimPrefix(repaymentAmountPrompt(loan), "CON "))
+			}
+			requested, _ := leadCents(amount)
+			if maximum, ok := leadCents(loan.Outstanding); ok && maximum > 0 && requested > maximum {
+				return paymentNavigation("CON Amount exceeds the loan balance.\n" + strings.TrimPrefix(repaymentAmountPrompt(loan), "CON "))
+			}
+		}
 		// A repeated one-digit amount must never be mistaken for payment consent.
 		if len(parts) == 3 && parts[0] == "3" {
 			confirm := "1"
